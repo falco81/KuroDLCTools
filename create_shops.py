@@ -4,8 +4,22 @@ from pathlib import Path
 
 # argument check
 if len(sys.argv) < 2:
-    print("Usage: python create_shops.py path_to_config_file.json")
+    print(
+        "Usage: python create_shops.py path_to_config_file.json\n"
+        "\n"
+        "This script generates a JSON file that assigns items to shops.\n"
+        "You need to provide a configuration JSON file with the following structure:\n"
+        "{\n"
+        "    \"item_ids\": [list of item IDs],\n"
+        "    \"shop_ids\": [list of shop IDs]\n"
+        "}\n"
+        "\n"
+        "Example:\n"
+        "  python create_shops.py my_config.json\n"
+        "This will create 'output_my_config.json' containing all combinations of items and shops."
+    )
     sys.exit(1)
+
 
 config_path = Path(sys.argv[1])
 

@@ -16,8 +16,23 @@ def collect_shops(node, result):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python find_all_shops.py t_shop.json [search_text]")
+        print(
+            "Usage: python find_all_shops.py t_shop.json [search_text]\n"
+            "\n"
+            "This script searches through a JSON file containing shops and extracts all shop IDs and names.\n"
+            "\n"
+            "Arguments:\n"
+            "  t_shop.json   Path to the JSON file containing shop data.\n"
+            "  search_text   (Optional) Filter shops by text in their name (case-insensitive).\n"
+            "\n"
+            "Examples:\n"
+            "  python find_all_shops.py t_shop.json\n"
+            "      Lists all shops from the file.\n"
+            "  python find_all_shops.py t_shop.json blacksmith\n"
+            "      Lists all shops with 'blacksmith' in their name."
+        )
         return
+
 
     filename = sys.argv[1]
     search_text = sys.argv[2].lower() if len(sys.argv) >= 3 else None

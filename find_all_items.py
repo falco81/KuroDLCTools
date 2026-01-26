@@ -16,8 +16,26 @@ def collect_items(node, result):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python find_all_items.py t_item.json [search_text] [search_id]")
+        print(
+            "Usage: python find_all_items.py t_item.json [search_text] [search_id]\n"
+            "\n"
+            "This script searches through a JSON file containing items and extracts all items with their IDs and names.\n"
+            "\n"
+            "Arguments:\n"
+            "  t_item.json   Path to the JSON file containing items.\n"
+            "  search_text   (Optional) Filter items by text in their name (case-insensitive).\n"
+            "  search_id     (Optional) Filter items by exact ID.\n"
+            "\n"
+            "Examples:\n"
+            "  python find_all_items.py t_item.json\n"
+            "      Lists all items from the file.\n"
+            "  python find_all_items.py t_item.json sword\n"
+            "      Lists all items with 'sword' in their name.\n"
+            "  python find_all_items.py t_item.json 102\n"
+            "      Lists the item with ID '102' only."
+        )
         return
+
 
     filename = sys.argv[1]
     search_text = sys.argv[2].lower() if len(sys.argv) >= 3 else None

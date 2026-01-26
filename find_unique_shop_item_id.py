@@ -3,8 +3,21 @@ import sys
 
 # Check if an argument was provided
 if len(sys.argv) < 2:
-    print("Usage: python find_unique_shop_item_id.py .kurodlc.json")
+    print(
+        "Usage: python find_unique_shop_item_id.py <.kurodlc.json>\n"
+        "\n"
+        "This script extracts all unique item IDs from a .kurodlc JSON file.\n"
+        "It combines IDs found in 'ShopItem' and 'CostumeParam' sections.\n"
+        "\n"
+        "Arguments:\n"
+        "  .kurodlc.json   Path to the JSON file containing shop and costume data.\n"
+        "\n"
+        "Example:\n"
+        "  python find_unique_shop_item_id.py my_data.kurodlc.json\n"
+        "      Outputs a sorted list of all unique item IDs found in the file."
+    )
     sys.exit(1)
+
 
 # File name from argument
 json_file = sys.argv[1]

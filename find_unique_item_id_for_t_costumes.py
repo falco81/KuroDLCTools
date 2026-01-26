@@ -17,8 +17,21 @@ def get_unique_ids_by_category(json_path):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python find_unique_item_id_for_t_costumes.py <t_costume.json>")
+        print(
+            "Usage: python find_unique_item_id_for_t_costumes.py <t_costume.json>\n"
+            "\n"
+            "This script extracts all unique item IDs from the 'CostumeParam' category\n"
+            "in a t_costume JSON file.\n"
+            "\n"
+            "Arguments:\n"
+            "  t_costume.json   Path to the JSON file containing costume data.\n"
+            "\n"
+            "Example:\n"
+            "  python find_unique_item_id_for_t_costumes.py t_costume.json\n"
+            "      Outputs a sorted list of unique item IDs from the 'CostumeParam' category."
+        )
         sys.exit(1)
+
 
     json_file = sys.argv[1]
 
