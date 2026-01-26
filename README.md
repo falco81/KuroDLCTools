@@ -13,6 +13,7 @@ This repository contains the following Python scripts:
 | Script | Description |
 |------|-------------|
 | `find_all_shops.py` | Finds and lists all shops defined in a `t_shop.json` file with the ability to search by shop name|
+| `find_all_items.py` | Finds and lists all items defined in a `t_item.json` file with the ability to search by item name or item id|
 | `find_unique_shop_item_id.py` | Extracts unique `item_id` from `.kurodlc.json` file |
 | `create_shops.py` | Generates shop definitions from a template JSON file |
 | `find_unique_item_id_for_t_item_category.py` | Finds unique `item_id` values grouped by item category in a `t_item.json` file |
@@ -31,7 +32,7 @@ This repository contains the following Python scripts:
 
 All scripts are executed from the command line.
 
-### 1️⃣ Find all shops
+### 1 Find all shops
 
 Lists all shops found in a `t_shop.json` file with the ability to search by shop name case-insensitive.
 
@@ -40,11 +41,44 @@ python find_all_shops.py path/to/t_shop.json [search_text]
 ```
 
 **Output:**
-- Printed list of shop IDs
+- Printed list of shops + IDs
 
 ---
 
-### 2️⃣ Find unique shop / item ID pairs
+### 2 Find all items
+
+Lists all items found in a `t_item.json` file with the ability to search by item name case-insensitive or item id.
+
+```bash
+python find_all_items.py path/to/t_item.json
+```
+
+**Output:**
+- Printed list of items + IDs
+
+```bash
+python find_all_items.py path/to/t_item.json [search_text]
+```
+
+**Output:**
+- Printed list of items + IDs contains [search_text]
+
+```bash
+python find_all_items.py path/to/t_item.json [search_text] [search_id]
+```
+
+**Output:**
+- Printed list of items + IDs contains [search_text] and exactly [search_id]
+
+```bash
+python find_all_items.py path/to/t_item.json "" [search_id]
+```
+
+**Output:**
+- Printed list of items + IDs corresponding exactly [search_id]
+---
+
+### 3 Find unique shop / item ID pairs
 
 Extracts unique `item_id`
 
@@ -57,7 +91,7 @@ python find_unique_shop_item_id.py path/to/file.kurodlc.json
 
 ---
 
-### 3️⃣ Find unique item IDs by item category
+### 4 Find unique item IDs by item category
 
 Finds unique `item_id` values grouped by item category. (outfits category = 17 )
 
@@ -70,7 +104,7 @@ python find_unique_item_id_for_t_item_category.py path/to/t_item.json <category>
 
 ---
 
-### 4️⃣ Find unique costume item IDs
+### 5 Find unique costume item IDs
 
 Extracts all unique `item_id` values for costume items.
 
@@ -83,7 +117,7 @@ python find_unique_item_id_for_t_costumes.py path/to/t_costume.json
 
 ---
 
-### 5️⃣ Create shop definitions
+### 6 Create shop definitions
 
 Generates shop definitions using a template JSON file.
 
