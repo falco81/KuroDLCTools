@@ -111,10 +111,10 @@ This output can be manually merged into your main `.kurodlc.json` file.
 ---
 ## 📝 Notes
 
+- Use to extract script_eng.p3a / script_en.p3a **`kurodlc_extract_original_tbls.py`**.
+- https://github.com/eArmada8/kuro_dlc_tool
+<br/><br/>
 - Use to convert tbl to json **`tbl2json.py`**.
 - https://github.com/nnguyen259/KuroTools
 
-- Use to extract script_eng.p3a / script_en.p3a **`kurodlc_extract_original_tbls.py`**.
-- https://github.com/eArmada8/kuro_dlc_tool
-  
 ---
