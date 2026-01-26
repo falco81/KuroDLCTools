@@ -93,8 +93,8 @@ python create_shops.py create_shops_template.json
 
 #### Template example
 
-item_ids from find_unique_shop_item_id.py output
-shop_ids from find_all_shops.py output
+- item_ids from find_unique_shop_item_id.py output
+- shop_ids from find_all_shops.py output
 
 ```json
 {
