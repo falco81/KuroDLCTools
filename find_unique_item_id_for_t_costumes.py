@@ -24,5 +24,5 @@ if __name__ == "__main__":
 
     ids = get_unique_ids_by_category(json_file)
 
-    # výstup ve formátu Python listu
+    # Print result
     print(ids)

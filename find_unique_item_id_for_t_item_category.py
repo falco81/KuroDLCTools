@@ -18,7 +18,7 @@ def get_unique_ids_by_category(json_path, category):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Použití: python script.py <t_item.json> <category>")
+        print("Usage: python find_unique_item_id_for_t_item_category.py <t_item.json> <category>")
         sys.exit(1)
 
     json_file = sys.argv[1]
@@ -26,5 +26,5 @@ if __name__ == "__main__":
 
     ids = get_unique_ids_by_category(json_file, category)
 
-    # výstup ve formátu Python listu
+    # Print result
     print(ids)
