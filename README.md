@@ -123,7 +123,7 @@ python find_unique_item_id_for_t_costumes.py path/to/t_costume.json
 Generates shop definitions using a template JSON file.
 
 ```bash
-python shops_create.py create_shops_template.json
+python shops_create.py shops_create_template.json
 ```
 
 #### Template example
