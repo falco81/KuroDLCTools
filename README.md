@@ -139,7 +139,7 @@ python shops_create.py create_shops_template.json
 ```
 
 **Output:**
-- `output_create_shops_template.json` containing generated shop definitions
+- `output_shops_create_template.json` containing generated shop definitions
 
 This output can be manually merged into your main `.kurodlc.json` file.
 
