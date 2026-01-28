@@ -897,7 +897,7 @@ python resolve_id_conflicts_in_kurodlc.py repair --apply --no-interactive
 
 The repair process intelligently updates IDs in all these sections:
 
-| Section | ID Field | Context Logged | Example from DOA Pack |
+| Section | ID Field | Context Logged | Example |
 |---------|----------|----------------|----------------------|
 | `CostumeParam` | `item_id` | `mdl_name` | chr5001_c107 |
 | `ShopItem` | `item_id` | `shop_id` | 21 (Melrose Newspapers) |
@@ -1393,7 +1393,7 @@ python find_unique_item_id_from_kurodlc.py check --source=json
 # Create shops
 python shops_create.py config.json
 
-# Extract DLC IDs
+# Extract DLC item IDs
 python shops_find_unique_item_id_from_kurodlc.py DOAFortuneSummerMod2_kurodlc.json
 python shops_find_unique_item_id_from_kurodlc.py DOAFortuneSummerMod2_kurodlc.json shop
 python shops_find_unique_item_id_from_kurodlc.py DOAFortuneSummerMod2_kurodlc.json costume
