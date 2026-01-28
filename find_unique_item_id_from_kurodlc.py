@@ -1,196 +1,261 @@
 import json
 import sys
 import os
+from glob import glob
 
-# --- Functions -------------------------------------------------------------
+# ------------------------------------------------------------
+# Utilities
+# ------------------------------------------------------------
+
+def get_all_files():
+    return [f for f in os.listdir('.') if f.lower().endswith('.kurodlc.json')]
 
 def extract_item_ids(json_file):
-    """Load a .kurodlc.json file and return a list of item_id values from CostumeParam."""
     with open(json_file, "r", encoding="utf-8") as f:
         data = json.load(f)
-    return [item["item_id"] for item in data.get("CostumeParam", []) if "item_id" in item]
+    return [
+        item["item_id"]
+        for item in data.get("CostumeParam", [])
+        if "item_id" in item
+    ]
 
-def get_all_kurodlc_files():
-    """Return all *.kurodlc.json files (case-insensitive) in the current directory."""
-    files = [f for f in os.listdir(".") if f.lower().endswith(".kurodlc.json") and os.path.isfile(f)]
-    if not files:
-        print("No .kurodlc.json files found in the current directory.")
-        sys.exit(0)
-    return files
+# ------------------------------------------------------------
+# Source detection & selection (CHECK MODE)
+# ------------------------------------------------------------
 
-# ---- Argument handling -----------------------------------------------------
+def detect_sources():
+    sources = []
+
+    if os.path.exists("t_item.json"):
+        sources.append(("json", "t_item.json"))
+
+    if os.path.exists("t_item.tbl.original"):
+        sources.append(("original", "t_item.tbl.original"))
+
+    if os.path.exists("t_item.tbl"):
+        sources.append(("tbl", "t_item.tbl"))
+
+    if os.path.exists("script_en.p3a"):
+        sources.append(("p3a", "script_en.p3a"))
+
+    if os.path.exists("script_eng.p3a"):
+        sources.append(("p3a", "script_eng.p3a"))
+
+    return sources
+
+def select_source_interactive(sources):
+    print("\nMultiple item sources detected.\n")
+    print("Select source to use for check:")
+
+    for i, (stype, name) in enumerate(sources, 1):
+        if stype == "p3a":
+            print(f"  {i}) {name} (extract t_item.tbl.original.tmp)")
+        else:
+            print(f"  {i}) {name}")
+
+    while True:
+        choice = input(f"\nEnter choice [1-{len(sources)}]: ").strip()
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(sources):
+                return sources[idx]
+        print("Invalid choice, try again.")
+
+# ------------------------------------------------------------
+# Extraction from P3A
+# ------------------------------------------------------------
+
+def extract_from_p3a(p3a_file, out_file):
+    from p3a_lib import p3a_class
+
+    p3a = p3a_class()
+    with open(p3a_file, 'rb') as p3a.f:
+        headers, entries, p3a_dict = p3a.read_p3a_toc()
+        for entry in entries:
+            if os.path.basename(entry['name']) == 't_item.tbl':
+                data = p3a.read_file(entry, p3a_dict)
+                with open(out_file, 'wb') as f:
+                    f.write(data)
+                return True
+    return False
+
+# ------------------------------------------------------------
+# Load item table
+# ------------------------------------------------------------
+
+def load_items_from_json():
+    with open('t_item.json', 'r', encoding='utf-8') as f:
+        data = json.load(f)
+
+    for section in data.get("data", []):
+        if section.get("name") == "ItemTableData":
+            return {x['id']: x['name'] for x in section.get("data", [])}
+    return {}
+
+def load_items_from_tbl(tbl_file):
+    from kurodlc_lib import kuro_tables
+    kt = kuro_tables()
+    table = kt.read_table(tbl_file)
+    return {x['id']: x['name'] for x in table['ItemTableData']}
+
+# ------------------------------------------------------------
+# MAIN
+# ------------------------------------------------------------
 
 if len(sys.argv) < 2:
     print("""
-Usage:
-  python find_unique_item_id_from_kurodlc.py <mode_or_file>
-
-Description:
-  Extracts item_id values from the "CostumeParam" section of *.kurodlc.json files.
+Usage: python script.py <mode> [options]
 
 Modes:
   <file.kurodlc.json>
-      Process a single file and print unique item_id values as a sorted list.
-
   searchall
-      Process all *.kurodlc.json files in the current directory and print
-      all unique item_id values as a single sorted list.
-
-  searchallline
-      Same as searchall, but print each unique item_id on a separate line.
-
   searchallbydlc
-      For each *.kurodlc.json file:
-        - print the file name
-        - print item_id values found in that file as a list
-      Then print all unique item_id values across all files as a list.
-
   searchallbydlcline
-      Same as searchallbydlc, but item_id values are printed line by line.
-      The final summary of unique item_id values is also printed line by line.
-
+  searchallline
   check
-      Same as searchallline, but for each ID, automatically check
-      t_item.json, t_item.tbl.original, or t_item.tbl and print its name if assigned.
-      Output uses [OK] for available IDs, [BAD] for assigned IDs.
-      ID and name are aligned for better readability.
-      At the end, shows total IDs, counts of OK/BAD, and the source file.
 
-Examples:
-  python find_unique_item_id_from_kurodlc.py costume1.kurodlc.json
-  python find_unique_item_id_from_kurodlc.py searchall
-  python find_unique_item_id_from_kurodlc.py searchallline
-  python find_unique_item_id_from_kurodlc.py searchallbydlc
-  python find_unique_item_id_from_kurodlc.py searchallbydlcline
-  python find_unique_item_id_from_kurodlc.py check
+Check options:
+  --source json|tbl|original|p3a
+  --no-interactive
+  --keep-extracted
 """)
     sys.exit(1)
 
-raw_arg = sys.argv[1]
-arg = raw_arg.lower()
+arg = sys.argv[1].lower()
+options = sys.argv[2:]
 
-# ---- Modes -----------------------------------------------------------------
+# ------------------------------------------------------------
+# CHECK MODE
+# ------------------------------------------------------------
 
-if arg == "searchall":
-    all_item_ids = []
-    for f in get_all_kurodlc_files():
-        all_item_ids.extend(extract_item_ids(f))
-    print(sorted(set(all_item_ids)))
+if arg == "check":
+    keep_extracted = "--keep-extracted" in options
+    no_interactive = "--no-interactive" in options
 
-elif arg == "searchallline":
-    all_item_ids = []
-    for f in get_all_kurodlc_files():
-        all_item_ids.extend(extract_item_ids(f))
-    for item_id in sorted(set(all_item_ids)):
-        print(item_id)
+    forced_source = None
+    for opt in options:
+        if opt.startswith("--source"):
+            _, forced_source = opt.split("=") if "=" in opt else (None, None)
 
-elif arg == "searchallbydlc":
-    all_item_ids = []
-    for f in get_all_kurodlc_files():
-        item_ids = extract_item_ids(f)
-        all_item_ids.extend(item_ids)
-        print(f"{f}:")
-        print(item_ids)
-        print()
-    print("Unique item_ids across all files:")
-    print(sorted(set(all_item_ids)))
+    sources = detect_sources()
+    if not sources:
+        print("Error: No valid item source found.")
+        sys.exit(1)
 
-elif arg == "searchallbydlcline":
-    all_item_ids = []
-    for f in get_all_kurodlc_files():
-        item_ids = extract_item_ids(f)
-        all_item_ids.extend(item_ids)
-        print(f"{f}:")
-        for item_id in sorted(set(item_ids)):
-            print(item_id)
-        print()
-    print("Unique item_ids across all files:")
-    for item_id in sorted(set(all_item_ids)):
-        print(item_id)
+    extracted_temp = False
+    temp_tbl = "t_item.tbl.original.tmp"
+    used_source = None
 
-elif arg == "check":
-    items_dict = {}
-    source = "unknown"
-
-    # --- Load t_item.json if exists ---
-    if os.path.exists('t_item.json'):
-        with open('t_item.json', 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            items_list = []
-            for section in data.get("data", []):
-                if section.get("name") == "ItemTableData":
-                    items_list = section.get("data", [])
-                    break
-            items_dict = {x['id']: x['name'] for x in items_list}
-            source = "t_item.json"
+    if forced_source:
+        for stype, path in sources:
+            if stype == forced_source:
+                used_source = (stype, path)
+                break
+        if not used_source:
+            print("Forced source not available.")
+            sys.exit(1)
     else:
-        # fallback to t_item.tbl / t_item.tbl.original
-        try:
-            from kurodlc_lib import kuro_tables
-        except ModuleNotFoundError:
-            print("Error: kurodlc_lib.py not found, required for check mode with tbl files.")
+        if len(sources) == 1 or no_interactive:
+            used_source = sources[0]
+        else:
+            used_source = select_source_interactive(sources)
+
+    stype, path = used_source
+
+    if stype == "json":
+        items_dict = load_items_from_json()
+        source_used = "t_item.json"
+
+    elif stype in ("tbl", "original"):
+        items_dict = load_items_from_tbl(path)
+        source_used = path
+
+    elif stype == "p3a":
+        if extract_from_p3a(path, temp_tbl):
+            extracted_temp = True
+            items_dict = load_items_from_tbl(temp_tbl)
+            source_used = f"{path} → {temp_tbl}"
+        else:
+            print("Failed to extract t_item.tbl from P3A.")
             sys.exit(1)
 
-        kt = kuro_tables()
-        if getattr(sys, 'frozen', False):
-            os.chdir(os.path.dirname(sys.executable))
-        else:
-            os.chdir(os.path.abspath(os.path.dirname(__file__)))
-
-        if os.path.exists('t_item.tbl.original'):
-            t_item = kt.read_table('t_item.tbl.original')
-            source = "t_item.tbl.original"
-        elif os.path.exists('t_item.tbl'):
-            t_item = kt.read_table('t_item.tbl')
-            source = "t_item.tbl"
-        else:
-            print("Error: t_item.json, t_item.tbl or t_item.tbl.original not found!")
-            sys.exit(1)
-
-        t_item = kt.update_table_with_kurodlc(t_item)
-        items_dict = {x['id']: x['name'] for x in t_item['ItemTableData']}
-
-    # --- Collect all unique item_ids from .kurodlc.json files ---
+    # Collect IDs
     all_item_ids = []
-    for f in get_all_kurodlc_files():
+    for f in get_all_files():
         all_item_ids.extend(extract_item_ids(f))
 
-    all_item_ids_set = sorted(set(all_item_ids))
+    unique_ids = sorted(set(all_item_ids))
 
-    # --- Determine max lengths for dynamic alignment ---
-    max_id_len = max(len(str(i)) for i in all_item_ids_set)
-    max_name_len = max([len(name) for name in items_dict.values()] + [len("available")])
+    max_id_len = max(len(str(i)) for i in unique_ids)
+    max_name_len = max(len(name) for name in items_dict.values()) if items_dict else 0
 
-    # --- Print each ID with name and status dynamically aligned ---
     ok_count = 0
     bad_count = 0
-    for item_id in all_item_ids_set:
+
+    for item_id in unique_ids:
+        id_str = str(item_id).rjust(max_id_len)
         if item_id in items_dict:
-            status = "[BAD]"  # assigned
-            name = items_dict[item_id]
+            name = items_dict[item_id].ljust(max_name_len)
+            print(f"{id_str} : {name} [BAD]")
             bad_count += 1
         else:
-            status = "[OK]"   # available
-            name = "available"
+            print(f"{id_str} : {'available'.ljust(max_name_len)} [OK]")
             ok_count += 1
-        print(f"{str(item_id).ljust(max_id_len)}  {name.ljust(max_name_len)} {status}")
 
-    # --- Print summary and source ---
-    print(f"\nTotal IDs: {len(all_item_ids_set)}")
-    print(f"Total OK: {ok_count}")
-    print(f"Total BAD: {bad_count}")
-    print(f"Source used for check: {source}")
+    print("\nSummary:")
+    print(f"Total IDs : {len(unique_ids)}")
+    print(f"OK        : {ok_count}")
+    print(f"BAD       : {bad_count}")
+    print(f"\nSource used for check: {source_used}")
 
-# ---- Single file -----------------------------------------------------------
+    if extracted_temp and not keep_extracted:
+        os.remove(temp_tbl)
+        print(f"Cleaned up temporary file: {temp_tbl}")
+
+    sys.exit(0)
+
+# ------------------------------------------------------------
+# OTHER MODES (unchanged)
+# ------------------------------------------------------------
+
+files = get_all_files()
+
+if arg == "searchall":
+    ids = []
+    for f in files:
+        ids.extend(extract_item_ids(f))
+    print(sorted(set(ids)))
+
+elif arg == "searchallbydlc":
+    all_ids = []
+    for f in files:
+        ids = extract_item_ids(f)
+        all_ids.extend(ids)
+        print(f"{f}:")
+        print(ids)
+        print()
+    print("Unique item_ids across all files:")
+    print(sorted(set(all_ids)))
+
+elif arg == "searchallbydlcline":
+    all_ids = []
+    for f in files:
+        ids = extract_item_ids(f)
+        all_ids.extend(ids)
+        print(f"{f}:")
+        for i in sorted(ids):
+            print(i)
+        print()
+    print("Unique item_ids across all files:")
+    for i in sorted(set(all_ids)):
+        print(i)
+
+elif arg == "searchallline":
+    ids = []
+    for f in files:
+        ids.extend(extract_item_ids(f))
+    for i in sorted(set(ids)):
+        print(i)
 
 else:
-    if not os.path.isfile(raw_arg):
-        print(f"Error: Unknown parameter or file not found: '{raw_arg}'")
-        print("Use one of: searchall, searchallline, searchallbydlc, searchallbydlcline, check")
-        sys.exit(1)
-    if not raw_arg.lower().endswith(".kurodlc.json"):
-        print(f"Error: Invalid file type: '{raw_arg}' (expected .kurodlc.json)")
-        sys.exit(1)
-
-    unique_item_ids = sorted(set(extract_item_ids(raw_arg)))
-    print(unique_item_ids)
+    print(sorted(set(extract_item_ids(sys.argv[1]))))
