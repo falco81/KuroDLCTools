@@ -1431,7 +1431,6 @@ python resolve_id_conflicts_in_kurodlc.py repair --apply
 | 2 | 300-399, 3000+ | Books/Quest Items | 300: Spriggan Notebook |
 | 15 | 1200-1999 | Accessories | 1200: Leather Boots, 1201: Rigid Spikes |
 | 17 | 2500-2999 | Costumes | 2500-2602 (base game costumes) |
-| 17 | 100-199 | Custom Costumes | 100-113 (DOA Fortune Summer mods) |
 
 **Recommended Ranges for Mods**:
 - **Costumes**: 3000-3999 (to avoid base game range 2500-2999)
