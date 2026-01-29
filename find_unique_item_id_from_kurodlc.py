@@ -53,6 +53,9 @@ def detect_sources():
     if os.path.exists("script_eng.p3a"):
         sources.append(("p3a", "script_eng.p3a"))
 
+    if os.path.exists("zzz_combined_tables.p3a"):
+        sources.append(("zzz", "zzz_combined_tables.p3a"))
+
     return sources
 
 def select_source_interactive(sources):
@@ -60,7 +63,7 @@ def select_source_interactive(sources):
     print("Select source to use for check:")
 
     for i, (stype, name) in enumerate(sources, 1):
-        if stype == "p3a":
+        if stype in ("p3a", "zzz"):
             print(f"  {i}) {name} (extract t_item.tbl.original.tmp)")
         else:
             print(f"  {i}) {name}")
@@ -142,7 +145,8 @@ Modes:
 
   check
       Special mode to check if item_ids in .kurodlc.json files are already assigned in the game data.
-      Supports multiple sources: t_item.json, t_item.tbl, t_item.tbl.original, script_en.p3a, script_eng.p3a.
+      Supports multiple sources: t_item.json, t_item.tbl, t_item.tbl.original,
+      script_en.p3a, script_eng.p3a, zzz_combined_tables.p3a.
 
       The script will detect all available sources automatically. If multiple sources are found:
         - Interactive selection is prompted (default)
@@ -158,6 +162,7 @@ Check Mode Options:
         tbl       : use t_item.tbl
         original  : use t_item.tbl.original
         p3a       : use script_en.p3a or script_eng.p3a (will extract t_item.tbl.original.tmp)
+        zzz       : use zzz_combined_tables.p3a (will extract t_item.tbl.original.tmp)
 
   --no-interactive
       Do not prompt user for source selection.
@@ -241,7 +246,7 @@ if arg == "check":
         items_dict = load_items_from_tbl(path)
         source_used = path
 
-    elif stype == "p3a":
+    elif stype in ("p3a", "zzz"):
         if extract_from_p3a(path, temp_tbl):
             extracted_temp = True
             items_dict = load_items_from_tbl(temp_tbl)

@@ -10,6 +10,7 @@ Supported sources:
 - t_item.tbl
 - t_item.tbl.original
 - script_en.p3a / script_eng.p3a (extracts t_item.tbl.original.tmp)
+- zzz_combined_tables.p3a (extracts t_item.tbl.original.tmp)
 
 Modes:
 1) checkbydlc
@@ -25,7 +26,7 @@ Options:
 --apply            Apply changes to DLC files.
 --keep-extracted   Keep temporary extracted t_item.tbl.original.tmp after P3A extraction.
 --no-interactive   Automatically selects first source if multiple found.
---source=<type>    Force a source: json, tbl, original, p3a.
+--source=<type>    Force a source: json, tbl, original, p3a, zzz.
 
 Usage examples:
   python resolve_id_conflicts_in_kurodlc.py checkbydlc
@@ -85,12 +86,13 @@ def detect_sources():
     if os.path.exists("t_item.tbl"): sources.append(("tbl","t_item.tbl"))
     if os.path.exists("script_en.p3a"): sources.append(("p3a","script_en.p3a"))
     if os.path.exists("script_eng.p3a"): sources.append(("p3a","script_eng.p3a"))
+    if os.path.exists("zzz_combined_tables.p3a"): sources.append(("zzz","zzz_combined_tables.p3a"))
     return sources
 
 def select_source_interactive(sources):
     print("\nMultiple item sources detected. Select source to use for check/repair:")
     for i,(stype,path) in enumerate(sources,1):
-        if stype=="p3a":
+        if stype in ("p3a", "zzz"):
             print(f"  {i}) {path} (extract t_item.tbl.original.tmp)")
         else:
             print(f"  {i}) {path}")
@@ -297,7 +299,7 @@ if stype=="json":
 elif stype in ("tbl","original"):
     items_dict=load_items_from_tbl(path)
     source_used=path
-elif stype=="p3a":
+elif stype in ("p3a", "zzz"):
     if extract_from_p3a(path,temp_tbl):
         extracted_temp=True
         items_dict=load_items_from_tbl(temp_tbl)
