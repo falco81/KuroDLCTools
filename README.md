@@ -3,6 +3,7 @@
 A comprehensive Python toolkit for creating and managing DLC mods for games using the KuroDLC format. This toolkit provides utilities for item discovery, ID management, conflict resolution, and shop assignment automation.
 
 [![Python Version](https://img.shields.io/badge/python-3.7%2B-blue)](https://www.python.org/downloads/)
+[![Version](https://img.shields.io/badge/version-2.7.1-green)](https://github.com/yourusername/kurodlc-toolkit/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 
 > **⚠️ GPL-3.0 License Notice**  
@@ -27,6 +28,7 @@ A comprehensive Python toolkit for creating and managing DLC mods for games usin
 - [External Dependencies](#-external-dependencies)
 - [Contributing](#-contributing)
 - [License](#-license)
+- [Advanced Documentation](#-advanced-documentation) ⭐
 
 ---
 
@@ -144,7 +146,7 @@ pip install lz4 zstandard xxhash --break-system-packages
 ## 🚀 Installation
 
 ### Option 1: Download Release (Recommended)
-1. Download the latest release from [Releases](https://github.com/falco81/KuroDLCTools/releases)
+1. Download the latest release from [Releases](https://github.com/yourusername/kurodlc-toolkit/releases)
 2. Extract to your desired location
 3. Run `install_python_modules.bat` (Windows) or install packages manually
 
@@ -755,9 +757,38 @@ For more information about GPL-3.0, see:
 
 ---
 
+## 📚 Advanced Documentation
+
+For comprehensive, in-depth documentation including:
+- **Complete parameter reference** for all scripts
+- **Real data examples** from t_item.json, t_shop.json, t_costume.json
+- **Data structure specifications** (.kurodlc.json, exports, imports, logs)
+- **Advanced workflows** (CI/CD, batch processing, manual ID mapping)
+- **Real-world scenarios** with actual game data
+
+See **[ADVANCED_DOCUMENTATION.md](ADVANCED_DOCUMENTATION.md)** ⭐
+
+**What's included:**
+- ✅ All script parameters documented
+- ✅ Examples with real game data (Sepith items: 310-318, Shops: 5,6,10,21-23)
+- ✅ Complete .kurodlc.json structure specification
+- ✅ Export/Import format specifications
+- ✅ Log file formats and examples
+- ✅ Advanced workflows (CI/CD, batch processing, custom ID mapping)
+- ✅ Real-world examples (costume packs, large collections)
+
+**Quick links:**
+- [Script Parameter Reference](ADVANCED_DOCUMENTATION.md#script-reference)
+- [Data Structure Specs](ADVANCED_DOCUMENTATION.md#data-structure-specifications)
+- [Real Data Examples](ADVANCED_DOCUMENTATION.md#real-data-examples)
+- [Advanced Workflows](ADVANCED_DOCUMENTATION.md#advanced-workflows)
+
+---
+
 ## 📧 Support
 
-- **Issues:** [GitHub Issues](https://github.com/falco81/KuroDLCTools/issues)
+- **Issues:** [GitHub Issues](https://github.com/yourusername/kurodlc-toolkit/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/yourusername/kurodlc-toolkit/discussions)
 
 ---
 
