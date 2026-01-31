@@ -757,8 +757,7 @@ For more information about GPL-3.0, see:
 
 ## 📧 Support
 
-- **Issues:** [GitHub Issues](https://github.com/falco81/kurodlc-toolkit/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/falco81/kurodlc-toolkit/discussions)
+- **Issues:** [GitHub Issues](https://github.com/falco81/KuroDLCTools/issues)
 
 ---
 
