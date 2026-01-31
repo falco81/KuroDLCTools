@@ -116,6 +116,7 @@ pip install colorama
 # For P3A archive support (optional)
 # Requires custom libraries: p3a_lib, kurodlc_lib
 # Contact library maintainers or check documentation
+https://github.com/eArmada8/kuro_dlc_tool
 ```
 
 **Quick Install (Windows):**
@@ -1329,7 +1330,15 @@ template_*.json
 # Schema
 kurodlc_schema.json
 ```
+---
 
+## 🙏 Acknowledgments
+
+- Game modding community
+- Contributors and testers
+- Library developers (p3a_lib, kurodlc_lib, colorama)
+- [https://github.com/eArmada8/kuro_dlc_tool]
+  
 ---
 
 <p align="center">
