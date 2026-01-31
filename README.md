@@ -144,7 +144,7 @@ pip install lz4 zstandard xxhash --break-system-packages
 ## 🚀 Installation
 
 ### Option 1: Download Release (Recommended)
-1. Download the latest release from [Releases](https://github.com/yourusername/kurodlc-toolkit/releases)
+1. Download the latest release from [Releases](https://github.com/falco81/KuroDLCTools/releases)
 2. Extract to your desired location
 3. Run `install_python_modules.bat` (Windows) or install packages manually
 
