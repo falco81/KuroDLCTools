@@ -801,81 +801,140 @@ python shops_create.py template_my_costume_mod.kurodlc.json
 
 ### find_all_items.py
 
-**Version:** v1.0  
+**Version:** v2.0 (Standalone with multi-source support)  
 **Purpose:** Search and browse game items with intelligent auto-detection
 
 #### All Parameters
 
 ```
-find_all_items.py <source> <search>
+find_all_items.py [search_query] [options]
 
 ARGUMENTS:
-  <source>            JSON or TBL file containing item data
-                      Examples: t_item.json, t_item.tbl
-                      
-  <search>            Search query (auto-detected as ID or name)
-                      - Pure numbers: treated as ID
-                      - Text: treated as name search (case-insensitive)
-                      
-SUPPORTED SOURCES:
-  JSON files:
-    - t_item.json     Game item database (JSON format)
-    - Any .json with ItemTableData section
-    
-  TBL files (requires kurodlc_lib.py):
-    - t_item.tbl      Game item database (TBL format)
+  search_query   (Optional) Search query with optional prefix
+  
+SEARCH MODES:
+  id:NUMBER      Search by exact ID (e.g., id:100)
+  name:TEXT      Search in item names (e.g., name:sword)
+  TEXT           Auto-detect (numbers → ID search, text → name search)
+  
+OPTIONS:
+  --source=TYPE       Force specific source: json, tbl, original, p3a, zzz
+  --no-interactive    Auto-select first source if multiple found
+  --keep-extracted    Keep temporary extracted files from P3A
+  --help              Show this help message
+  
+SUPPORTED SOURCES (auto-detected in priority order):
+  1. t_item.json
+  2. t_item.tbl.original
+  3. t_item.tbl
+  4. script_en.p3a / script_eng.p3a (extracts t_item.tbl)
+  5. zzz_combined_tables.p3a (extracts t_item.tbl)
 ```
 
 #### Examples with Real Data
 
-**Example 1: Search by ID**
+**Example 1: Search by ID (Auto-Detect)**
 
 ```bash
-python find_all_items.py t_item.json 310
+python find_all_items.py 310
 ```
 
 **Output:**
 ```
+# Auto-detected ID search for '310'
+# Use 'name:310' to search for '310' in item names instead
+
+Loading item data...
+Using source: t_item.json
+Loaded 2116 items from: t_item.json
+
 310 : Earth Sepith
+
+Total: 1 item(s)
 ```
 
 **Example 2: Search by Name**
 
 ```bash
-python find_all_items.py t_item.json sepith
+python find_all_items.py sepith
 ```
 
 **Output:**
 ```
-Searching for: sepith
+Loading item data...
+Using source: t_item.json
+Loaded 2116 items from: t_item.json
 
-Results:
-  310 : Earth Sepith
-  311 : Water Sepith
-  312 : Fire Sepith
-  313 : Wind Sepith
-  314 : Time Sepith
-  315 : Space Sepith
-  316 : Mirage Sepith
-  317 : Sepith Mass
-  318 : All Element Sepith
+310 : Earth Sepith
+311 : Water Sepith
+312 : Fire Sepith
+313 : Wind Sepith
+314 : Time Sepith
+315 : Space Sepith
+316 : Mirage Sepith
+317 : Sepith Mass
+318 : All Element Sepith
+
+Total: 9 item(s)
 ```
 
-**Example 3: Partial Name Search**
+**Example 3: Explicit Search Modes**
 
 ```bash
-python find_all_items.py t_item.json "earth"
+# Explicit ID search
+python find_all_items.py id:310
+
+# Explicit name search (useful for numbers in names)
+python find_all_items.py name:100
 ```
 
-**Output:**
-```
-Searching for: earth
+**Example 4: Force Specific Source**
 
-Results:
-  310 : Earth Sepith
+```bash
+# Force JSON source
+python find_all_items.py sword --source=json
+
+# Force TBL source (requires kurodlc_lib.py)
+python find_all_items.py sword --source=tbl
+
+# Extract from P3A archive (requires p3a_lib.py + dependencies)
+python find_all_items.py sword --source=p3a
 ```
 
-**Example 4: Real Item Categories**
+**Example 5: Multi-Source Selection (Interactive)**
+
+```bash
+python find_all_items.py
+
+# When multiple sources exist:
+# 
+# Multiple data sources detected. Select source to use:
+#   1) t_item.json
+#   2) t_item.tbl.original
+#   3) t_item.tbl
+#   4) script_en.p3a (extract t_item.tbl)
+# 
+# Enter choice [1-4]:
+```
+
+**Example 6: Automation (No Interactive Prompts)**
+
+```bash
+# For CI/CD or scripts - auto-select first source
+python find_all_items.py sepith --source=json --no-interactive > items.txt
+```
+
+**Example 7: Using with P3A Archives**
+
+```bash
+# Extract t_item.tbl from P3A and search
+python find_all_items.py sword --source=p3a
+
+# Keep extracted file for debugging
+python find_all_items.py sword --source=p3a --keep-extracted
+```
+
+#### Real Item Categories
 
 From t_item.json, items are organized by category:
 
@@ -886,42 +945,34 @@ Category 17: Costume items
 Category 30: Casino items
 ```
 
-**Search for costumes:**
-```bash
-python find_all_items.py t_item.json costume
-```
-
-**Example 5: Using with TBL Files**
-
-```bash
-# Requires kurodlc_lib.py + optional dependencies
-python find_all_items.py t_item.tbl 310
-```
-
-**Same output as JSON version**, but reads from binary .tbl file.
-
 ---
 
 ### find_all_shops.py
 
-**Version:** v1.0  
-**Purpose:** List all shops from game data
+**Version:** v2.0 (Standalone with multi-source support)  
+**Purpose:** List all shops from game data with flexible source handling
 
 #### All Parameters
 
 ```
-find_all_shops.py <source>
+find_all_shops.py [search_text] [options]
 
 ARGUMENTS:
-  <source>            JSON or TBL file containing shop data
-                      Examples: t_shop.json, t_shop.tbl
-                      
-SUPPORTED SOURCES:
-  JSON files:
-    - t_shop.json     Game shop database (JSON format)
-    
-  TBL files (requires kurodlc_lib.py):
-    - t_shop.tbl      Game shop database (TBL format)
+  search_text   (Optional) Filter shops by text in name (case-insensitive)
+  
+OPTIONS:
+  --source=TYPE       Force specific source: json, tbl, original, p3a, zzz
+  --no-interactive    Auto-select first source if multiple found
+  --keep-extracted    Keep temporary extracted files from P3A
+  --debug             Show debug information about data structure
+  --help              Show this help message
+  
+SUPPORTED SOURCES (auto-detected in priority order):
+  1. t_shop.json
+  2. t_shop.tbl.original
+  3. t_shop.tbl
+  4. script_en.p3a / script_eng.p3a (extracts t_shop.tbl)
+  5. zzz_combined_tables.p3a (extracts t_shop.tbl)
 ```
 
 #### Examples with Real Data
@@ -929,38 +980,87 @@ SUPPORTED SOURCES:
 **Example 1: List All Shops**
 
 ```bash
-python find_all_shops.py t_shop.json
+python find_all_shops.py
 ```
 
 **Output (first 20 shops):**
 ```
-Shops found in t_shop.json:
+Loading shop data...
+Using source: t_shop.json
+Loaded 215 shops from: t_shop.json
 
+  4 : Casino
   5 : Item Shop
   6 : Weapon/Armor Shop
   7 : Shared Table Test
   8 : Modification/Trade Shop
   9 : Kitchen
  10 : Orbments
-  4 : Casino
  21 : Melrose Newspapers & Tobacco
  22 : Melrose Newspapers & Tobacco
  23 : Melrose Newspapers & Tobacco
  24 : Montmart Bistro
- 26 : Montmart Bistro
  25 : Montmart Bistro
+ 26 : Montmart Bistro
  27 : Stanley's Factory
  28 : Stanley's Factory
- ...
+...
 
-Total shops: 215
+Total: 215 shop(s)
 ```
 
-**Example 2: Using Output for Template Generation**
+**Example 2: Search for Specific Shop**
+
+```bash
+python find_all_shops.py melrose
+```
+
+**Output:**
+```
+Loading shop data...
+Using source: t_shop.json
+Loaded 215 shops from: t_shop.json
+
+ 21 : Melrose Newspapers & Tobacco
+ 22 : Melrose Newspapers & Tobacco
+ 23 : Melrose Newspapers & Tobacco
+
+Total: 3 shop(s)
+```
+
+**Example 3: Using with Debug Mode**
+
+```bash
+python find_all_shops.py --debug
+```
+
+**Output:**
+```
+DEBUG: Loaded 215 shop entries
+DEBUG: Type of shops: <class 'list'>
+DEBUG: First shop entry: {'id': 5, 'shop_name': 'Item Shop', ...}
+DEBUG: Type of first entry: <class 'dict'>
+
+...shop listing...
+```
+
+**Example 4: Force TBL Source**
+
+```bash
+python find_all_shops.py --source=tbl
+```
+
+**Example 5: Automation**
+
+```bash
+python find_all_shops.py --source=json --no-interactive > shops_list.txt
+```
+
+#### Using Output for Template Generation
 
 1. **Find shops:**
 ```bash
-python find_all_shops.py t_shop.json > shops_list.txt
+python find_all_shops.py > shops_list.txt
 ```
 
 2. **Select shop IDs for your template:**
@@ -976,49 +1076,211 @@ python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-
 
 ---
 
-### Other Utility Scripts
+### find_unique_item_id_for_t_costumes.py
 
-#### find_unique_item_id_for_t_costumes.py
+**Version:** v2.0 (Standalone with multi-source support)  
+**Purpose:** Extract all unique costume item IDs from game data
 
-**Purpose:** Extract all unique costume item IDs from t_costume.json
+#### All Parameters
+
+```
+find_unique_item_id_for_t_costumes.py [options]
+
+OPTIONS:
+  --source=TYPE       Force specific source: json, tbl, original, p3a, zzz
+  --no-interactive    Auto-select first source if multiple found
+  --keep-extracted    Keep temporary extracted files from P3A
+  --format=FORMAT     Output format: list (default), count, range
+  --help              Show this help message
+  
+OUTPUT FORMATS:
+  list   Print Python list of IDs: [100, 101, 102, ...]
+  count  Print count of unique IDs: 150 unique item IDs
+  range  Print ID range: 100-5000 (150 IDs)
+  
+SUPPORTED SOURCES (auto-detected in priority order):
+  1. t_costume.json
+  2. t_costume.tbl.original
+  3. t_costume.tbl
+  4. script_en.p3a / script_eng.p3a (extracts t_costume.tbl)
+  5. zzz_combined_tables.p3a (extracts t_costume.tbl)
+```
+
+#### Examples with Real Data
+
+**Example 1: Extract Costume IDs (Default List Format)**
 
 ```bash
-python find_unique_item_id_for_t_costumes.py t_costume.json
+python find_unique_item_id_for_t_costumes.py
 ```
 
 **Output:**
 ```
-[0, 2350, 2351, 2352, ..., 4809]
+Loading costume data...
+Using source: t_costume.json
+Loaded 487 costumes from: t_costume.json
+
+[0, 2350, 2351, 2352, 2353, ..., 4807, 4808, 4809]
 ```
 
-**Use case:** Find which IDs are used by game costumes to avoid conflicts.
-
-#### find_unique_item_id_for_t_item_category.py
-
-**Purpose:** Extract item IDs by category
+**Example 2: Count Only**
 
 ```bash
-python find_unique_item_id_for_t_item_category.py t_item.json 17
+python find_unique_item_id_for_t_costumes.py --format=count
 ```
 
-**Output:** All item IDs in category 17 (costumes)
+**Output:**
+```
+Loading costume data...
+Using source: t_costume.json
+Loaded 487 costumes from: t_costume.json
 
-#### find_unique_item_id_from_kurodlc.py
+487 unique item IDs
+```
 
-**Purpose:** Check DLC IDs against game data (requires kurodlc_lib.py)
+**Example 3: Range Info**
 
 ```bash
-# Check specific file
-python find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json
-
-# Check all .kurodlc.json files
-python find_unique_item_id_from_kurodlc.py searchall
-
-# Check mode (interactive)
-python find_unique_item_id_from_kurodlc.py check
+python find_unique_item_id_for_t_costumes.py --format=range
 ```
+
+**Output:**
+```
+Loading costume data...
+Using source: t_costume.json
+Loaded 487 costumes from: t_costume.json
+
+0-4809 (487 IDs)
+```
+
+**Example 4: Force JSON Source**
+
+```bash
+python find_unique_item_id_for_t_costumes.py --source=json
+```
+
+**Example 5: Extract from P3A Archive**
+
+```bash
+python find_unique_item_id_for_t_costumes.py --source=p3a --no-interactive
+```
+
+**Use case:** Find which IDs are used by game costumes to avoid conflicts when creating custom costume mods.
 
 ---
+
+### find_unique_item_id_for_t_item_category.py
+
+**Version:** v2.0 (Standalone with multi-source support)  
+**Purpose:** Extract item IDs by category from game item database
+
+#### All Parameters
+
+```
+find_unique_item_id_for_t_item_category.py <category> [options]
+
+ARGUMENTS:
+  category      Category number to filter items by (integer, REQUIRED)
+
+OPTIONS:
+  --source=TYPE       Force specific source: json, tbl, original, p3a, zzz
+  --no-interactive    Auto-select first source if multiple found
+  --keep-extracted    Keep temporary extracted files from P3A
+  --format=FORMAT     Output format: list (default), count, range
+  --help              Show this help message
+  
+OUTPUT FORMATS:
+  list   Print Python list of IDs: [100, 101, 102, ...]
+  count  Print count of unique IDs: 150 unique item IDs in category 5
+  range  Print ID range: 100-5000 (150 IDs in category 5)
+  
+SUPPORTED SOURCES (auto-detected in priority order):
+  1. t_item.json
+  2. t_item.tbl.original
+  3. t_item.tbl
+  4. script_en.p3a / script_eng.p3a (extracts t_item.tbl)
+  5. zzz_combined_tables.p3a (extracts t_item.tbl)
+```
+
+#### Examples with Real Data
+
+**Example 1: Extract Sepith IDs (Category 0)**
+
+```bash
+python find_unique_item_id_for_t_item_category.py 0
+```
+
+**Output:**
+```
+Loading item data for category 0...
+Using source: t_item.json
+Loaded 2116 items from: t_item.json
+
+[310, 311, 312, 313, 314, 315, 316, 317, 318]
+```
+
+**Example 2: Count Costume Items (Category 17)**
+
+```bash
+python find_unique_item_id_for_t_item_category.py 17 --format=count
+```
+
+**Output:**
+```
+Loading item data for category 17...
+Using source: t_item.json
+Loaded 2116 items from: t_item.json
+
+487 unique item IDs in category 17
+```
+
+**Example 3: Range for Category 5**
+
+```bash
+python find_unique_item_id_for_t_item_category.py 5 --format=range
+```
+
+**Output:**
+```
+Loading item data for category 5...
+Using source: t_item.json
+Loaded 2116 items from: t_item.json
+
+100-450 (78 IDs in category 5)
+```
+
+**Example 4: Force TBL Source**
+
+```bash
+python find_unique_item_id_for_t_item_category.py 17 --source=tbl
+```
+
+**Example 5: Automation**
+
+```bash
+# Extract all categories to separate files
+for cat in 0 2 5 17 30; do
+  python find_unique_item_id_for_t_item_category.py $cat --source=json --no-interactive > category_$cat.txt
+done
+```
+
+#### Known Item Categories
+
+From t_item.json:
+
+```
+Category 0:  Sepith (310-318)
+Category 2:  Key Items
+Category 5:  Consumables
+Category 17: Costumes (487 items, ID range 0-4809)
+Category 30: Casino Items
+```
+
+**Use case:** Find which IDs are used by specific item categories to avoid conflicts or to understand item organization.
+
+---
+
+
 
 ## Data Structure Specifications
 
