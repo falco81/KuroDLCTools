@@ -243,7 +243,30 @@ python shops_create.py template_my_mod.kurodlc.json
 # Step 3: Copy ShopItem section from output_template_my_mod.kurodlc.json into your my_mod.kurodlc.json
 ```
 
-### 3. Convert KuroTools Schemas ⭐ NEW
+### 3. Visualize ID Allocation ⭐ NEW
+```bash
+# Analyze current ID allocation and find free ranges
+python visualize_id_allocation.py
+
+# Opens interactive HTML report showing:
+# - Color-coded ID map (occupied vs free)
+# - Statistics and fragmentation metrics
+# - List of all available ID ranges
+```
+
+### 4. Browse Characters ⭐ NEW
+```bash
+# Search for character by name
+python find_all_names.py van
+
+# Search by ID
+python find_all_names.py 100
+
+# Show full names and models
+python find_all_names.py van --show-full --show-model
+```
+
+### 5. Convert KuroTools Schemas
 ```bash
 # Expand schema support for new TBL files
 python convert_kurotools_schemas.py
@@ -252,7 +275,7 @@ python convert_kurotools_schemas.py
 # Replace your kurodlc_schema.json with this file
 ```
 
-### 4. Browse Game Items
+### 6. Browse Game Items
 ```bash
 # Search for items (auto-detects t_item.json, t_item.tbl, or P3A archives)
 python find_all_items.py sepith
@@ -276,6 +299,13 @@ python find_all_items.py sepith --source=json
 | **`shops_find_unique_item_id_from_kurodlc.py`** | v2.1 | Template generation | Extract IDs, generate templates, CI/CD support |
 | **`shops_create.py`** | v2.0 | Shop assignment generation | Bulk assignments, custom templates, variable substitution |
 | **`convert_kurotools_schemas.py`** ⭐ NEW | v1.0 | Schema conversion | KuroTools → kurodlc format, 280+ schemas, multi-game support |
+
+### Analysis & Visualization Scripts ⭐ NEW
+
+| Script | Version | Purpose | Main Features |
+|--------|---------|---------|---------------|
+| **`visualize_id_allocation.py`** ⭐ NEW | v1.0 | ID allocation visualization | Interactive HTML map, gap analysis, fragmentation metrics, free block identification |
+| **`find_all_names.py`** ⭐ NEW | v1.0 | Character name search | Multi-source support, smart search (ID/name/model), detailed filtering |
 
 ### Utility Scripts
 
@@ -536,6 +566,326 @@ Nested structures (e.g., effects arrays) are automatically flattened:
 
 ---
 
+### visualize_id_allocation.py ⭐ NEW
+
+**Purpose:** Analyze and visualize ID allocation patterns to identify free ID ranges and fragmentation
+
+#### Quick Reference
+
+```bash
+# Generate both console and HTML visualization
+python visualize_id_allocation.py
+
+# Console visualization only
+python visualize_id_allocation.py --format=console
+
+# HTML report only with custom filename
+python visualize_id_allocation.py --format=html --output=my_report.html
+
+# Use larger blocks for better overview
+python visualize_id_allocation.py --block-size=100
+
+# Force specific data source
+python visualize_id_allocation.py --source=json
+```
+
+#### Features
+
+- **📊 Interactive HTML Map**: Beautiful, interactive visualization with tooltips
+- **🎨 Color-Coded Display**: Green for occupied IDs, gray for free IDs
+- **📈 Gap Analysis**: Identifies and lists all free ID ranges
+- **📊 Statistics Dashboard**: Shows allocation metrics and fragmentation
+- **💾 Dual Output**: Both console and HTML formats
+- **🔍 Block-Based View**: Configurable block sizes for better overview
+
+#### HTML Report Features
+
+The generated HTML report (`id_allocation_map.html`) includes:
+
+**Statistics Dashboard:**
+- Engine Range (1-5000)
+- Highest Used ID
+- Occupied IDs count and percentage
+- Free IDs count and percentage
+- Average Gap Size
+- Fragmentation Index
+- Largest Free Block
+- Total Free Blocks
+
+**Visual ID Map:**
+- 100-column grid showing all 5000 IDs
+- Green cells = occupied IDs
+- Gray cells = free IDs
+- Hover tooltips with ID numbers
+- Search functionality for specific IDs
+
+**Free Blocks Table:**
+- Lists all available ID ranges
+- Shows block size for each range
+- Sortable by start ID or size
+- Perfect for finding safe ID ranges for new mods
+
+#### Example Output
+
+**Console Output:**
+```
+Loading item data...
+
+Loaded 2116 items from: t_item.json
+
+ID Allocation Analysis
+═══════════════════════════════════════════════════════════
+
+Statistics:
+  Engine Range:       1 - 5000
+  Highest Used ID:    4921
+  Occupied IDs:       2116 / 5000  (42.3%)
+  Free IDs:           2884 / 5000  (57.7%)
+  Average Gap Size:   7.8 IDs
+  Fragmentation:      0.73 (73% fragmented)
+  Largest Free Block: 79 IDs (4922-5000)
+  Total Free Blocks:  370
+
+ID Allocation Map (Block Size: 50)
+═══════════════════════════════════════════════════════════
+
+    0: ████████████████████████████████████████████████ [  0 -  49]  100.0%
+   50: ████████████████████████████████████████████████ [ 50 -  99]  100.0%
+  100: ████████████████████████████████████████████████ [100 - 149]  100.0%
+  ...
+ 4950: ██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ [4950-4999]   12.0%
+
+Legend: █ Occupied  ░ Free
+
+HTML report generated: id_allocation_map.html
+```
+
+#### Parameters
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--source=TYPE` | Force specific source (json, tbl, original, p3a, zzz) | Auto-detect |
+| `--no-interactive` | Auto-select first source if multiple found | Interactive |
+| `--keep-extracted` | Keep temporary extracted files from P3A | Delete after use |
+| `--format=FORMAT` | Output format: console, html, both | both |
+| `--block-size=N` | Block size for console visualization | 50 |
+| `--output=FILE` | Custom HTML output filename | id_allocation_map.html |
+| `--help` | Show help message | - |
+
+#### Use Cases
+
+**1. Before Creating New Mods:**
+```bash
+# Check current ID allocation
+python visualize_id_allocation.py
+
+# Look for large free blocks in HTML report
+# Example: IDs 3500-3650 (150 IDs available)
+```
+
+**2. Planning Multi-Mod Projects:**
+```bash
+# Generate report to coordinate ID ranges between mods
+python visualize_id_allocation.py --output=project_allocation.html
+
+# Share HTML report with team to avoid conflicts
+```
+
+**3. Analyzing Fragmentation:**
+```bash
+# Check fragmentation index
+# High fragmentation (>0.7) = many small gaps
+# Low fragmentation (<0.3) = few large gaps
+```
+
+**4. Finding Optimal ID Ranges:**
+```bash
+# Look at "Largest Free Block" statistic
+# Use HTML table to find multiple suitable ranges
+```
+
+#### Supported Data Sources
+
+- **t_item.json** - JSON format item table
+- **t_item.tbl** - Binary table file
+- **t_item.tbl.original** - Original backup
+- **script_en.p3a / script_eng.p3a** - P3A archives (extracts t_item.tbl)
+- **zzz_combined_tables.p3a** - Combined tables archive
+
+#### Workflow Integration
+
+```bash
+# Step 1: Analyze current allocation
+python visualize_id_allocation.py
+
+# Step 2: Open HTML report to find free ranges
+start id_allocation_map.html
+
+# Step 3: Use free ranges in your DLC
+# Example: Use IDs 3500-3650 for weapons
+
+# Step 4: After adding items, verify no conflicts
+python resolve_id_conflicts_in_kurodlc.py my_mod.kurodlc.json --check
+```
+
+---
+
+### find_all_names.py ⭐ NEW
+
+**Purpose:** Search and browse character names from game data with intelligent filtering
+
+#### Quick Reference
+
+```bash
+# List all characters
+python find_all_names.py
+
+# Search by character name (auto-detect)
+python find_all_names.py van
+
+# Search by ID (auto-detect)
+python find_all_names.py 100
+
+# Explicit search modes
+python find_all_names.py name:100       # Search "100" in names
+python find_all_names.py id:100         # Search character ID 100
+python find_all_names.py full_name:arkride
+python find_all_names.py model:chr0000
+
+# Show additional fields
+python find_all_names.py van --show-full --show-model
+
+# Force specific source
+python find_all_names.py --source=json
+```
+
+#### Features
+
+- **👤 Character Discovery**: Browse all game characters
+- **🔍 Smart Search**: Auto-detects ID vs name searches
+- **📋 Multi-Source Support**: JSON, TBL, P3A archives
+- **🎯 Multi-Field Filtering**: Search by ID, name, full name, or model
+- **📊 Clean Output**: Formatted tables with alignment
+- **⚙️ Flexible Options**: Show/hide additional fields
+
+#### Search Modes
+
+**Auto-Detection:**
+```bash
+python find_all_names.py 100     # → ID search (it's a number)
+python find_all_names.py van     # → Name search (it's text)
+```
+
+**Explicit Modes:**
+```bash
+python find_all_names.py id:100          # Search by character ID
+python find_all_names.py name:van        # Search in character names
+python find_all_names.py name:100        # Search "100" in names (not ID!)
+python find_all_names.py full_name:arkride  # Search in full names
+python find_all_names.py model:chr0100   # Search in model names
+```
+
+#### Example Output
+
+**Basic Search:**
+```bash
+$ python find_all_names.py van
+
+Loading character name data...
+
+Loaded 500 characters from: t_name.json
+
+100 : ヴァン
+101 : ヴァン・アークライド
+225 : ヴァンダール
+
+Total: 3 character(s)
+```
+
+**With Full Names and Models:**
+```bash
+$ python find_all_names.py van --show-full --show-model
+
+Loading character name data...
+
+Loaded 500 characters from: t_name.json
+
+100 : ヴァン              | Van Arkride           | chr0100_01
+101 : ヴァン・アークライド | Van Arkride (Full)    | chr0100_02
+225 : ヴァンダール        | Vandaal               | chr0225
+
+Total: 3 character(s)
+```
+
+#### Parameters
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `search_query` | Search query with optional prefix | `van`, `id:100`, `name:ark` |
+| `--source=TYPE` | Force specific source | `--source=json` |
+| `--no-interactive` | Auto-select first source | Auto-select if multiple |
+| `--keep-extracted` | Keep P3A extracted files | Keep temp files |
+| `--show-full` | Show full names in output | Display full_name field |
+| `--show-model` | Show model names in output | Display model field |
+| `--help` | Show help message | Display usage |
+
+#### Use Cases
+
+**1. Character ID Lookup:**
+```bash
+# Find character ID for scripting
+python find_all_names.py "ヴァン"
+# Output: 100 : ヴァン
+```
+
+**2. Verify Character Model:**
+```bash
+# Check which model a character uses
+python find_all_names.py id:100 --show-model
+# Output: 100 : ヴァン | chr0100_01
+```
+
+**3. Browse Character Names:**
+```bash
+# List all characters with "アーロン" in name
+python find_all_names.py アーロン --show-full
+```
+
+**4. Model Reference:**
+```bash
+# Find all characters using specific model
+python find_all_names.py model:chr0100
+```
+
+#### Supported Data Sources
+
+- **t_name.json** - JSON format name table
+- **t_name.tbl** - Binary table file
+- **t_name.tbl.original** - Original backup
+- **script_en.p3a / script_eng.p3a** - P3A archives (extracts t_name.tbl)
+- **zzz_combined_tables.p3a** - Combined tables archive
+
+#### Important Notes
+
+**Auto-Detection Caveat:**
+```bash
+# These behave differently!
+python find_all_names.py 100      # → Searches for character ID 100
+python find_all_names.py name:100 # → Searches for "100" in character names
+
+# Script shows auto-detection hints:
+# Auto-detected ID search for '100'
+# Use 'name:100' to search for '100' in character names instead
+```
+
+**Output Fields:**
+- **ID**: Character ID number
+- **Name**: Character display name (Japanese/English)
+- **Full Name**: Complete character name (with --show-full)
+- **Model**: 3D model identifier (with --show-model)
+
+---
+
 ### find_all_items.py
 
 **Purpose:** Search and browse game items with auto-source detection
@@ -601,7 +951,54 @@ python shops_create.py template_my_mod.json
 # 6. Test in game!
 ```
 
-### Workflow 2: Schema Expansion ⭐ NEW
+### Workflow 2: ID Allocation Planning ⭐ NEW
+
+```bash
+# 1. Analyze current ID allocation
+python visualize_id_allocation.py
+
+# 2. Open HTML report
+start id_allocation_map.html
+
+# 3. Review statistics and find suitable free blocks
+# Look for:
+# - Largest free blocks (e.g., 3500-3650: 150 IDs)
+# - Low fragmentation areas
+# - Gaps large enough for your mod items
+
+# 4. Plan your ID ranges based on findings
+# Example: Weapons in 3500-3549, Armor in 3550-3599
+
+# 5. Create your DLC using planned ID ranges
+# (edit .kurodlc.json manually or with scripts)
+
+# 6. Verify no conflicts
+python resolve_id_conflicts_in_kurodlc.py my_mod.kurodlc.json --check
+
+# 7. If conflicts found, let algorithm reassign
+python resolve_id_conflicts_in_kurodlc.py my_mod.kurodlc.json repair --apply
+```
+
+### Workflow 3: Character Reference Lookup ⭐ NEW
+
+```bash
+# 1. Find character ID by name
+python find_all_names.py "ヴァン"
+# Output: 100 : ヴァン
+
+# 2. Verify character model for custom events
+python find_all_names.py 100 --show-model
+# Output: 100 : ヴァン | chr0100_01
+
+# 3. Find all characters in a series
+python find_all_names.py アーロン --show-full
+# Output: List of all Aaron characters with full names
+
+# 4. Export character list for documentation
+python find_all_names.py > character_reference.txt
+```
+
+### Workflow 4: Schema Expansion
 
 ```bash
 # 1. Download/copy KuroTools schemas folder
@@ -621,7 +1018,7 @@ copy kurodlc_schema_updated.json kurodlc_schema.json
 # 6. Now you can work with new TBL files!
 ```
 
-### Workflow 3: Manual ID Control
+### Workflow 5: Manual ID Control
 
 ```bash
 # 1. Export ID mapping
@@ -634,7 +1031,7 @@ python resolve_id_conflicts_in_kurodlc.py repair --export --export-name=MyMod
 python resolve_id_conflicts_in_kurodlc.py repair --import --mapping-file=id_mapping_MyMod.json
 ```
 
-### Workflow 4: CI/CD Integration
+### Workflow 6: CI/CD Integration
 
 ```bash
 # Non-interactive conflict resolution
@@ -758,10 +1155,25 @@ Enable detailed logging by checking script output - all scripts provide comprehe
 
 ### ID Management
 1. **Always check for conflicts** before releasing your mod
-2. **Use the smart algorithm** (v2.7) for better ID distribution
-3. **Keep backups** - automatic backups are created, but keep your own too
-4. **Export ID mappings** if you need to manually adjust specific IDs
-5. **Test your mod** after applying ID changes
+2. **Visualize ID allocation** first with `visualize_id_allocation.py` to find safe ranges
+3. **Use the smart algorithm** (v2.7) for better ID distribution
+4. **Keep backups** - automatic backups are created, but keep your own too
+5. **Export ID mappings** if you need to manually adjust specific IDs
+6. **Test your mod** after applying ID changes
+
+### ID Allocation Analysis ⭐ NEW
+1. **Run visualize_id_allocation.py** before starting a new mod project
+2. **Review HTML report** to identify large free blocks
+3. **Plan ID ranges** based on available gaps (avoid fragmentation)
+4. **Check fragmentation index** - aim for larger continuous blocks
+5. **Share reports** with team to coordinate ID usage
+6. **Re-analyze** after major game updates
+
+### Character Reference ⭐ NEW
+1. **Use find_all_names.py** to look up character IDs for scripting
+2. **Verify model names** before creating custom events
+3. **Check full names** for accurate dialogue references
+4. **Export character lists** for documentation purposes
 
 ### Shop Assignments
 1. **Review templates** before generating assignments
@@ -786,7 +1198,24 @@ Enable detailed logging by checking script output - all scripts provide comprehe
 
 ## 📝 Version History
 
-### v1.0 (2026-02-02) - convert_kurotools_schemas.py RELEASE ⭐ NEW
+### v1.0 (2026-02-02) - NEW ANALYSIS TOOLS ⭐ NEW
+- **New Script:** `visualize_id_allocation.py` - ID allocation visualization
+  - Interactive HTML map generation
+  - Color-coded visualization (occupied vs free)
+  - Gap analysis and fragmentation metrics
+  - Free block identification
+  - Dual output: console + HTML
+  - Configurable block sizes
+- **New Script:** `find_all_names.py` - Character name search
+  - Multi-source support (JSON, TBL, P3A)
+  - Smart search with auto-detection
+  - Multi-field filtering (ID, name, full_name, model)
+  - Clean formatted output
+  - Optional field display
+- **Documentation:** Updated README with detailed examples
+- **Status:** Production ready
+
+### v1.0 (2026-02-02) - convert_kurotools_schemas.py RELEASE
 - **New:** Schema conversion from KuroTools to kurodlc format
 - **New:** Support for 280+ KuroTools schema files
 - **New:** Multi-game support (Kuro 1/2, Kai, Ys X, Sky)
