@@ -1,6 +1,6 @@
 # KuroDLC Modding Toolkit
 
-A comprehensive Python toolkit for creating and managing DLC mods for games using the KuroDLC format. This toolkit provides utilities for item discovery, ID management, conflict resolution, and shop assignment automation.
+A comprehensive Python toolkit for creating and managing DLC mods for games using the KuroDLC format. This toolkit provides utilities for item discovery, ID management, conflict resolution, shop assignment automation, and **schema conversion from KuroTools**.
 
 [![Python Version](https://img.shields.io/badge/python-3.7%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
@@ -35,7 +35,7 @@ A comprehensive Python toolkit for creating and managing DLC mods for games usin
 
 ### The Problem
 
-When creating DLC mods for Kuro engine games, modders face two major challenges:
+When creating DLC mods for Kuro engine games, modders face multiple challenges:
 
 **1. ID Conflicts (Primary Problem)**
 - DLC mods use item IDs that may conflict with existing game items
@@ -50,9 +50,15 @@ When creating DLC mods for Kuro engine games, modders face two major challenges:
 - Copy-paste errors are common
 - No easy way to bulk-update shop assignments
 
+**3. Schema Incompatibility (New Files Problem)** ⭐ NEW
+- New TBL files from game updates don't have schema definitions
+- KuroTools project supports new files but uses different format
+- Manual schema conversion is complex and error-prone
+- Missing schemas prevent reading new TBL files
+
 ### The Solution
 
-This toolkit automates both problems:
+This toolkit automates all three problems:
 
 **Primary: Automatic ID Conflict Resolution**
 ```bash
@@ -74,6 +80,16 @@ python shops_create.py template_my_mod.json
 - Customizable templates for different shop structures
 - 50 items × 10 shops = 500 entries generated instantly
 
+**Tertiary: Schema Conversion** ⭐ NEW
+```bash
+# Convert KuroTools schemas to kurodlc format
+python convert_kurotools_schemas.py
+```
+- Automatically converts 280+ schemas from KuroTools
+- Adds support for new TBL files (Kuro 1, 2, Kai, Ys X, Sky)
+- Expands schema coverage from 39 to 344+ structures
+- Works with local schemas folder (no internet needed)
+
 ---
 
 ## ✨ Features
@@ -94,6 +110,15 @@ Quickly assign items to multiple shops without manual editing - **batch generate
 - **📦 Bulk Operations**: Assign hundreds of items to multiple shops instantly
 - **🎨 Custom Templates**: Define your own shop item structure
 - **🤖 CI/CD Support**: Non-interactive mode for automated workflows
+
+### Tertiary Purpose: Schema Conversion ⭐ NEW
+Automatically convert KuroTools schemas to expand support for new TBL files!
+
+- **🔄 Automatic Conversion**: Convert 280+ KuroTools schemas in seconds
+- **📈 Massive Expansion**: From 39 to 344+ supported TBL structures
+- **🎮 Multi-Game Support**: Kuro 1, Kuro 2, Kai, Ys X, Sky 1st
+- **🔍 Smart Detection**: Automatically prevents duplicates
+- **📊 Detailed Reports**: Full conversion logs and statistics
 
 ### Additional Tools
 - **🔍 Item Discovery**: Search and browse game items from JSON, TBL, and P3A sources
@@ -170,6 +195,30 @@ pip install colorama --break-system-packages
 pip install lz4 zstandard xxhash --break-system-packages
 ```
 
+### Setup for Schema Conversion ⭐ NEW
+
+To use the schema converter, you need KuroTools schemas:
+
+**Option A: Download KuroTools (Recommended)**
+1. Download KuroTools from https://github.com/nnguyen259/KuroTools
+2. Extract the `schemas/` folder
+3. Place it in the same directory as `convert_kurotools_schemas.py`
+
+**Option B: Already Have KuroTools**
+If you already have KuroTools installed, just copy the `schemas/` folder to your toolkit directory.
+
+**File Structure:**
+```
+KuroDLCTools/
+├── convert_kurotools_schemas.py
+├── kurodlc_schema.json
+└── schemas/
+    └── headers/
+        ├── ATBonusParam.json
+        ├── ItemTableData.json
+        └── ... (280+ files)
+```
+
 ---
 
 ## 🚀 Quick Start
@@ -194,7 +243,16 @@ python shops_create.py template_my_mod.kurodlc.json
 # Step 3: Copy ShopItem section from output_template_my_mod.kurodlc.json into your my_mod.kurodlc.json
 ```
 
-### 3. Browse Game Items
+### 3. Convert KuroTools Schemas ⭐ NEW
+```bash
+# Expand schema support for new TBL files
+python convert_kurotools_schemas.py
+
+# Result: kurodlc_schema_updated.json with 344+ schemas
+# Replace your kurodlc_schema.json with this file
+```
+
+### 4. Browse Game Items
 ```bash
 # Search for items (auto-detects t_item.json, t_item.tbl, or P3A archives)
 python find_all_items.py sepith
@@ -217,6 +275,7 @@ python find_all_items.py sepith --source=json
 | **`resolve_id_conflicts_in_kurodlc.py`** | v2.7.1 | ID conflict resolution | Smart algorithm (v2.7), automatic repair, 1-5000 range limit |
 | **`shops_find_unique_item_id_from_kurodlc.py`** | v2.1 | Template generation | Extract IDs, generate templates, CI/CD support |
 | **`shops_create.py`** | v2.0 | Shop assignment generation | Bulk assignments, custom templates, variable substitution |
+| **`convert_kurotools_schemas.py`** ⭐ NEW | v1.0 | Schema conversion | KuroTools → kurodlc format, 280+ schemas, multi-game support |
 
 ### Utility Scripts
 
@@ -232,304 +291,432 @@ python find_all_items.py sepith --source=json
 
 | Script | Purpose |
 |--------|---------|
-| **`install_python_modules.bat`** | Install Python dependencies (Windows) |
+| **`install_python_modules.bat`** | Install required Python packages (Windows) |
 
 ---
 
 ## 📖 Detailed Documentation
 
-### resolve_id_conflicts_in_kurodlc.py (v2.7.1) - PRIMARY TOOL
+### resolve_id_conflicts_in_kurodlc.py
 
-**Purpose:** Automatically detect and fix ID conflicts between DLC mods and game data.
+**Purpose:** Detect and automatically fix ID conflicts between your DLC and game data
 
-**Key Features (v2.7.1):**
-- ✅ Smart ID assignment algorithm (v2.7)
-- ✅ Middle-out distribution starting from ID 2500
-- ✅ Hard limit enforcement: 1-5000 range only
-- ✅ Automatic backup creation
-- ✅ Detailed logging and reporting
-- ✅ Manual ID mapping import/export
+#### Quick Reference
 
-**Basic Usage:**
 ```bash
 # Check for conflicts (read-only)
 python resolve_id_conflicts_in_kurodlc.py checkbydlc
 
-# Repair mode with preview
+# Repair mode (shows what would change)
 python resolve_id_conflicts_in_kurodlc.py repair
 
-# Apply fixes automatically
+# Repair and apply changes automatically
 python resolve_id_conflicts_in_kurodlc.py repair --apply
 
-# Export ID mappings for manual editing
-python resolve_id_conflicts_in_kurodlc.py repair --export
+# Export ID mapping for manual editing
+python resolve_id_conflicts_in_kurodlc.py repair --export --export-name=MyMod
 
-# Import manual ID mappings
-python resolve_id_conflicts_in_kurodlc.py repair --import id_mapping.json --apply
+# Import and apply manually edited mappings
+python resolve_id_conflicts_in_kurodlc.py repair --import --mapping-file=id_mapping_MyMod.json
 ```
 
-**What's New in v2.7:**
-- Smart ID distribution algorithm
-- Better ID spacing for cleaner organization
-- Respects 1-5000 engine limit
-- Middle-out assignment from 2500
+#### Parameters
 
-**What's Fixed in v2.7.1:**
-- ✅ Removed bare except clause (line 929)
-- ✅ 100% code quality score
-- ✅ Better error handling
+- **`checkbydlc`** - Check all .kurodlc.json files for conflicts
+- **`repair`** - Generate repair plan for conflicts
+- **`--apply`** - Apply changes immediately (creates backups)
+- **`--export`** - Export ID mapping to JSON file
+- **`--export-name=NAME`** - Custom name for export file
+- **`--import`** - Import and apply ID mapping
+- **`--mapping-file=FILE`** - Specify mapping file to import
+- **`--source=TYPE`** - Force source type (json/tbl/p3a)
+- **`--no-interactive`** - Auto-select options (for CI/CD)
+
+#### How It Works
+
+1. **Detection**: Scans all .kurodlc.json files and compares against game database
+2. **Smart Assignment (v2.7)**: 
+   - Starts from ID 2500 for better distribution
+   - Tries continuous blocks first
+   - Falls back to scattered search
+   - Enforces 1-5000 range limit
+3. **Safety**: Creates backups before any changes
+4. **Logging**: Detailed logs of all operations
 
 ---
 
-### shops_find_unique_item_id_from_kurodlc.py (v2.1) - TEMPLATE GENERATOR
+### shops_find_unique_item_id_from_kurodlc.py
 
-**Purpose:** Extract item IDs from DLC files and generate template configurations for shop assignment.
+**Purpose:** Extract item IDs from DLC and generate templates for shop assignments
 
-**Key Features (v2.1):**
-- ✅ Extract IDs from DLC files
-- ✅ Auto-detect shop IDs from ShopItem section
-- ✅ Generate template configs for shops_create.py
-- ✅ Support for DLCs without ShopItem section
-- ✅ CI/CD friendly (--no-interactive flag)
+#### Quick Reference
 
-**Basic Usage:**
 ```bash
-# Extract all IDs
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json
-
-# Extract only costume IDs
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json costume
-
-# Generate template (auto-detect shop IDs)
+# Generate template with auto-detected shop IDs
 python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template
 
-# Generate template with manual shop IDs
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --shop-ids=1,5,10
+# Generate with custom shop IDs
+python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --shop-ids 5,6,10
 
-# For DLC without ShopItem section
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --default-shop-ids
+# Custom output name
+python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --output=custom_template.json
 
-# For CI/CD (non-interactive)
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --default-shop-ids --no-interactive
+# CI/CD mode (non-interactive)
+python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --no-interactive --default-shop-ids 5,10,21
 ```
 
-**What's New in v2.0:**
-- Template generation feature
-- Auto-extract shop IDs from ShopItem
-- Auto-extract template structure
-- Custom output filenames
+#### Parameters
 
-**What's New in v2.1:**
-- ✅ --no-interactive flag for CI/CD
-- ✅ --default-shop-ids flag for automatic fallback
-- ✅ Better error messages with actionable solutions
-- ✅ No more EOFError in automated environments
-- ✅ 100% code quality score
+- **`--generate-template`** - Generate template for shops_create.py
+- **`--shop-ids ID,ID,...`** - Comma-separated shop IDs
+- **`--output=FILE`** - Custom output filename
+- **`--no-interactive`** - Non-interactive mode (for CI/CD)
+- **`--default-shop-ids ID,ID,...`** - Default shop IDs for non-interactive mode
 
 ---
 
-### shops_create.py (v2.0) - ASSIGNMENT GENERATOR
+### shops_create.py
 
-**Purpose:** Generate bulk shop assignments from template configurations.
+**Purpose:** Generate shop assignments from templates with variable substitution
 
-**Key Features:**
-- ✅ Bulk assign items to multiple shops
-- ✅ Custom template support
-- ✅ Variable substitution (${shop_id}, ${item_id}, ${index}, ${count})
-- ✅ Custom output sections
-- ✅ Backward compatible with v1.0
+#### Quick Reference
 
-**Basic Usage:**
 ```bash
-# Generate shop assignments from template
-python shops_create.py template_my_mod.kurodlc.json
+# Generate from template
+python shops_create.py template_my_mod.json
 
-# Output: output_template_my_mod.kurodlc.json
+# See example configs
+type example_config_basic.json
+type example_config_advanced.json
+type example_config_custom_template.json
 ```
 
-**Template Structure:**
+#### Template Variables
+
+- **`${shop_id}`** - Current shop ID
+- **`${item_id}`** - Current item ID
+- **`${index}`** - Item index (0-based)
+- **`${count}`** - Total items per shop
+
+#### Configuration
+
+Templates support:
+- Custom output sections (default: "ShopItem")
+- Custom entry templates
+- Multiple shop IDs
+- Multiple item IDs
+- Variable substitution
+
+---
+
+### convert_kurotools_schemas.py ⭐ NEW
+
+**Purpose:** Convert KuroTools schemas to kurodlc_schema.json format
+
+#### Quick Reference
+
+```bash
+# Convert schemas (run in directory with schemas/ folder)
+python convert_kurotools_schemas.py
+
+# Output files:
+# - kurodlc_schema_updated.json (merged schemas)
+# - conversion_report.txt (detailed report)
+```
+
+#### What It Does
+
+1. **Loads** existing kurodlc_schema.json (if exists)
+2. **Scans** schemas/headers/ for KuroTools schemas
+3. **Converts** each schema to kurodlc format:
+   - Maps data types (ubyte → B, uint → I, toffset → Q, etc.)
+   - Calculates schema sizes
+   - Flattens nested structures
+   - Detects primary keys
+4. **Merges** with existing schemas (no duplicates)
+5. **Outputs**:
+   - `kurodlc_schema_updated.json` - Updated schema file
+   - `conversion_report.txt` - Conversion statistics
+
+#### Conversion Statistics
+
+- **Original schemas**: 39
+- **KuroTools schemas**: 282 files
+- **Converted variants**: 343
+- **New schemas added**: 305
+- **Total schemas**: 344
+
+#### Supported Games
+
+- **Kuro no Kiseki 1** (Kuro1)
+- **Kuro no Kiseki 2** (Kuro2)
+- **Kai no Kiseki** (Kai)
+- **Ys X: Nordics** (Ys_X)
+- **Trails in the Sky 1st** (Sora1)
+
+#### Type Conversion
+
+| KuroTools | Struct | Size | Type |
+|-----------|--------|------|------|
+| ubyte | B | 1 | number |
+| byte | b | 1 | number |
+| ushort | H | 2 | number |
+| short | h | 2 | number |
+| uint | I | 4 | number |
+| int | i | 4 | number |
+| ulong | Q | 8 | number |
+| long | q | 8 | number |
+| float | f | 4 | number |
+| toffset | Q | 8 | text |
+| array | QI | 12 | array |
+
+#### Nested Structures
+
+Nested structures (e.g., effects arrays) are automatically flattened:
+
+**KuroTools format:**
 ```json
-{
-  "item_ids": [3596, 3597, 3598],
-  "shop_ids": [1, 5, 10],
-  "template": {
-    "shop_id": "${shop_id}",
-    "item_id": "${item_id}",
-    "unknown": 1,
-    "start_scena_flags": [],
-    "empty1": 0,
-    "end_scena_flags": [],
-    "int2": 0
-  }
+"effects": {
+    "size": 5,
+    "schema": {
+        "id": "uint",
+        "value1": "uint",
+        "value2": "uint"
+    }
 }
 ```
 
-**Result:** 3 items × 3 shops = 9 shop assignments generated automatically!
+**Converted to:**
+```json
+"keys": [
+    "eff1_id", "eff1_value1", "eff1_value2",
+    "eff2_id", "eff2_value1", "eff2_value2",
+    ...
+]
+```
+
+#### Usage Workflow
+
+1. **Backup** original kurodlc_schema.json:
+   ```bash
+   copy kurodlc_schema.json kurodlc_schema.json.backup
+   ```
+
+2. **Run converter**:
+   ```bash
+   python convert_kurotools_schemas.py
+   ```
+
+3. **Review report**:
+   ```bash
+   type conversion_report.txt
+   ```
+
+4. **Replace schema**:
+   ```bash
+   copy kurodlc_schema_updated.json kurodlc_schema.json
+   ```
+
+5. **Test** with new TBL files
+
+#### Troubleshooting
+
+**Problem: "Headers directory not found"**
+- Ensure `schemas/headers/` folder exists in same directory
+- Download from https://github.com/nnguyen259/KuroTools
+
+**Problem: "No schemas found"**
+- Check folder structure: `schemas/headers/*.json`
+- Verify JSON files are valid
+
+**Problem: Schema has wrong size**
+- Check nested structures in KuroTools schema
+- Verify data type sizes
+- May need manual adjustment for complex types
 
 ---
 
-### Utility Scripts
+### find_all_items.py
 
-#### find_all_items.py
-Search and browse game items with auto-detection.
+**Purpose:** Search and browse game items with auto-source detection
+
+#### Quick Reference
 
 ```bash
-# Search by ID (auto-detected)
-python find_all_items.py t_item.json 310
-# Output: 310 : Earth Sepith
+# Search items (auto-detects source)
+python find_all_items.py sepith
 
-# Search by name (auto-detected)
-python find_all_items.py t_item.json sepith
-# Output: Multiple sepith items
+# Browse all items
+python find_all_items.py
+
+# Force specific source
+python find_all_items.py sepith --source=json
+python find_all_items.py sepith --source=tbl
+python find_all_items.py sepith --source=p3a
 ```
 
-#### find_all_shops.py
-List all shops from game data.
+#### Auto-Detection Priority
+
+1. `t_item.json` (fastest)
+2. `t_item.tbl` or `t_item.tbl.original`
+3. `script_en.p3a` / `script_eng.p3a`
+4. `zzz_combined_tables.p3a`
+
+---
+
+### find_all_shops.py
+
+**Purpose:** List all shops from game data
+
+#### Quick Reference
 
 ```bash
-python find_all_shops.py t_shop.json
-# Output: List of all shops with IDs and names
-```
+# Auto-detect and list shops
+python find_all_shops.py
 
-#### find_unique_item_id_from_kurodlc.py
-Check DLC IDs against game data (requires kurodlc_lib.py).
-
-```bash
-# Check mode
-python find_unique_item_id_from_kurodlc.py check
-
-# Search all .kurodlc.json files
-python find_unique_item_id_from_kurodlc.py searchall
+# Force source
+python find_all_shops.py --source=json
 ```
 
 ---
 
 ## 🔄 Common Workflows
 
-### Workflow 1: Creating a New DLC Mod (Complete Process)
+### Workflow 1: Complete DLC Creation
 
 ```bash
-# Step 1: Create your .kurodlc.json file
-# (Add your CostumeParam, ItemTableData, DLCTableData sections)
+# 1. Create your DLC items in my_mod.kurodlc.json
 
-# Step 2: Check for ID conflicts
-python resolve_id_conflicts_in_kurodlc.py checkbydlc
-
-# Step 3: Fix any conflicts automatically
+# 2. Check and fix ID conflicts
 python resolve_id_conflicts_in_kurodlc.py repair --apply
 
-# Step 4: Generate shop assignment template
+# 3. Generate shop template
 python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template
 
-# Step 5: (Optional) Edit template_my_mod.kurodlc.json
-# - Adjust shop_ids if needed
-# - Customize template structure
+# 4. Create shop assignments
+python shops_create.py template_my_mod.json
 
-# Step 6: Generate shop assignments
-python shops_create.py template_my_mod.kurodlc.json
+# 5. Merge ShopItem section into your DLC
 
-# Step 7: Copy ShopItem section from output file into your .kurodlc.json
-
-# Done! Your mod is ready with:
-# ✅ No ID conflicts
-# ✅ All items available in shops
+# 6. Test in game!
 ```
 
-### Workflow 2: Updating Existing DLC
+### Workflow 2: Schema Expansion ⭐ NEW
 
 ```bash
-# If you modified your DLC and need to re-check:
+# 1. Download/copy KuroTools schemas folder
 
-# Step 1: Check for new conflicts
-python resolve_id_conflicts_in_kurodlc.py repair
+# 2. Backup current schema
+copy kurodlc_schema.json kurodlc_schema.json.backup
 
-# Step 2: Apply fixes if needed
-python resolve_id_conflicts_in_kurodlc.py repair --apply
+# 3. Run conversion
+python convert_kurotools_schemas.py
 
-# Step 3: Regenerate shop assignments if items changed
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template
-python shops_create.py template_my_mod.kurodlc.json
+# 4. Review report
+type conversion_report.txt
+
+# 5. Replace schema
+copy kurodlc_schema_updated.json kurodlc_schema.json
+
+# 6. Now you can work with new TBL files!
 ```
 
-### Workflow 3: CI/CD Pipeline Integration
+### Workflow 3: Manual ID Control
 
 ```bash
-# Automated build pipeline example
+# 1. Export ID mapping
+python resolve_id_conflicts_in_kurodlc.py repair --export --export-name=MyMod
 
-# Step 1: Validate and fix conflicts
-python resolve_id_conflicts_in_kurodlc.py repair --apply
+# 2. Edit id_mapping_MyMod.json manually
+# Change specific IDs as needed
 
-# Step 2: Generate shop assignments (non-interactive)
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --default-shop-ids --no-interactive
+# 3. Import and apply
+python resolve_id_conflicts_in_kurodlc.py repair --import --mapping-file=id_mapping_MyMod.json
+```
+
+### Workflow 4: CI/CD Integration
+
+```bash
+# Non-interactive conflict resolution
+python resolve_id_conflicts_in_kurodlc.py repair --apply --no-interactive
+
+# Non-interactive shop generation
+python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json \
+    --generate-template \
+    --no-interactive \
+    --default-shop-ids 5,10,21
+
 python shops_create.py template_my_mod.kurodlc.json
-
-# Step 3: Merge output into final .kurodlc.json
-# (Your merge script here)
 ```
 
 ---
 
-## 📄 File Formats
+## 📁 File Formats
 
 ### .kurodlc.json Structure
 
 ```json
 {
-  "CostumeParam": [
-    {
-      "item_id": 3596,
-      "char_restrict": 1,
-      "type": 0,
-      "mdl_name": "c_van01b",
-      ...
-    }
-  ],
-  "ItemTableData": [
-    {
-      "id": 3596,
-      "name": "My Costume",
-      "desc": "Description",
-      "category": 17,
-      ...
-    }
-  ],
-  "DLCTableData": [
-    {
-      "id": 1,
-      "items": [3596, 3597, 3598],
-      "name": "My DLC Pack",
-      ...
-    }
-  ],
-  "ShopItem": [
-    {
-      "shop_id": 1,
-      "item_id": 3596,
-      "unknown": 1,
-      ...
-    }
-  ]
+    "ItemTableData": [
+        {
+            "id": 4000,
+            "name": "My Custom Item",
+            ...
+        }
+    ],
+    "ShopItem": [
+        {
+            "shop_id": 5,
+            "item_id": 4000,
+            ...
+        }
+    ],
+    "DLCTableData": [
+        {
+            "id": 1,
+            "items": 4000,
+            ...
+        }
+    ]
 }
 ```
 
-### Template Configuration (for shops_create.py)
+### ID Mapping Export Format
 
 ```json
 {
-  "_comment": ["Generated template"],
-  "item_ids": [3596, 3597, 3598],
-  "shop_ids": [1, 5, 10],
-  "template": {
-    "shop_id": "${shop_id}",
-    "item_id": "${item_id}",
-    "unknown": 1,
-    "start_scena_flags": [],
-    "empty1": 0,
-    "end_scena_flags": [],
-    "int2": 0
-  },
-  "output_section": "ShopItem"
+    "metadata": {
+        "timestamp": "2026-02-02T14:30:00",
+        "total_conflicts": 5,
+        "dlc_files": ["my_mod.kurodlc.json"]
+    },
+    "mappings": {
+        "my_mod.kurodlc.json": {
+            "old_id": "new_id",
+            "310": "4000",
+            "311": "4001"
+        }
+    }
 }
+```
+
+### Schema Conversion Report Format ⭐ NEW
+
+```
+KuroTools Schema Conversion Report
+======================================================================
+
+Original schemas: 39
+KuroTools schemas found: 282
+Converted schemas: 343
+New schemas added: 305
+Total schemas: 344
+
+New Schema Tables:
+----------------------------------------------------------------------
+  RecaptureIslandSkillTable    Size:  144  Game: Ys_X
+  BattleBGM                    Size:   56  Game: Kuro2
+  ...
 ```
 
 ---
@@ -538,35 +725,32 @@ python shops_create.py template_my_mod.kurodlc.json
 
 ### Common Issues
 
-**1. "No module named 'colorama'"**
-```bash
-pip install colorama --break-system-packages
-```
+**"No .kurodlc.json files found"**
+- Ensure you're in the correct directory
+- Check filename extensions (.kurodlc.json, not .json)
 
-**2. "No module named 'lz4'" (when using .tbl or .p3a files)**
-```bash
-pip install lz4 zstandard xxhash --break-system-packages
-```
+**"No valid source found for conflict detection"**
+- Need at least one: t_item.json, t_item.tbl, or script_en.p3a
+- Check file locations and names
 
-**3. "EOFError" when generating templates**
-- **Solution:** Use `--no-interactive` flag
-```bash
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --default-shop-ids --no-interactive
-```
+**"Not enough available IDs"**
+- Game has 5000 ID limit
+- Reduce number of items or check existing game data
+- Review repair plan to see ID usage
 
-**4. DLC has no ShopItem section**
-- **Solution:** Use `--shop-ids` or `--default-shop-ids`
-```bash
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --shop-ids=1,5,10
-```
+**"Headers directory not found"** ⭐ NEW
+- Download KuroTools schemas folder
+- Place in same directory as convert_kurotools_schemas.py
+- Structure: `schemas/headers/*.json`
 
-**5. "Invalid .kurodlc.json structure"**
-- Ensure your file has required sections: `CostumeParam`, `DLCTableData`
-- Validate JSON syntax using a JSON validator
+**"Schema size mismatch"** ⭐ NEW
+- Complex nested structures may need manual adjustment
+- Check conversion report for details
+- Compare with KuroTools schema definitions
 
-**6. IDs outside 1-5000 range**
-- The Kuro engine only supports IDs 1-5000
-- Use `resolve_id_conflicts_in_kurodlc.py` to reassign to valid range
+### Debug Mode
+
+Enable detailed logging by checking script output - all scripts provide comprehensive error messages and suggestions.
 
 ---
 
@@ -585,6 +769,13 @@ python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-
 3. **Customize templates** for different item types if needed
 4. **Test in-game** - verify items appear in correct shops
 
+### Schema Conversion ⭐ NEW
+1. **Backup original** kurodlc_schema.json before conversion
+2. **Review report** to see what was added
+3. **Test with TBL files** to verify schemas work
+4. **Keep KuroTools updated** to get latest schemas
+5. **Re-run converter** when KuroTools adds new schemas
+
 ### Development Workflow
 1. **Work with JSON files** - easier to edit and track changes
 2. **Use version control** (git) to track modifications
@@ -594,6 +785,16 @@ python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-
 ---
 
 ## 📝 Version History
+
+### v1.0 (2026-02-02) - convert_kurotools_schemas.py RELEASE ⭐ NEW
+- **New:** Schema conversion from KuroTools to kurodlc format
+- **New:** Support for 280+ KuroTools schema files
+- **New:** Multi-game support (Kuro 1/2, Kai, Ys X, Sky)
+- **New:** Automatic type mapping and size calculation
+- **New:** Nested structure flattening
+- **New:** Detailed conversion reports
+- **New:** Duplicate detection and merging
+- **Result:** 305 new schemas added (39 → 344 total)
 
 ### v2.7.1 (2026-01-31) - resolve_id_conflicts BUGFIX
 - **Fixed:** Removed bare except clause (line 929)
@@ -653,6 +854,16 @@ This toolkit uses the following external libraries:
 **Repository:** https://github.com/eArmada8/kuro_dlc_tool
 
 **Note:** These libraries are included in this repository for convenience. All credit for these components goes to the original author.
+
+### From [nnguyen259/KuroTools](https://github.com/nnguyen259/KuroTools) ⭐ NEW
+- **Schema definitions** - 280+ TBL structure definitions in `schemas/headers/`
+
+**Note:** KuroTools schemas are NOT included in this repository. Users must download them separately for schema conversion functionality.
+
+**How to get KuroTools schemas:**
+1. Visit https://github.com/nnguyen259/KuroTools
+2. Download or clone the repository
+3. Copy the `schemas/` folder to your toolkit directory
 
 ### Python Packages
 - **`colorama`** - Cross-platform colored terminal output
@@ -754,6 +965,7 @@ For more information about GPL-3.0, see:
 ## 🙏 Acknowledgments
 
 - **eArmada8** - For the original [kuro_dlc_tool](https://github.com/eArmada8/kuro_dlc_tool) libraries (p3a_lib.py, kurodlc_lib.py)
+- **nnguyen259** - For [KuroTools](https://github.com/nnguyen259/KuroTools) schema definitions ⭐ NEW
 - **The Kuro modding community** - For testing and feedback
 - **All contributors** - Thank you for your contributions!
 
@@ -767,6 +979,7 @@ For comprehensive, in-depth documentation including:
 - **Data structure specifications** (.kurodlc.json, exports, imports, logs)
 - **Advanced workflows** (CI/CD, batch processing, manual ID mapping)
 - **Real-world scenarios** with actual game data
+- **Schema conversion details** ⭐ NEW
 
 See **[ADVANCED_DOCUMENTATION.md](ADVANCED_DOCUMENTATION.md)** ⭐
 
@@ -778,12 +991,14 @@ See **[ADVANCED_DOCUMENTATION.md](ADVANCED_DOCUMENTATION.md)** ⭐
 - ✅ Log file formats and examples
 - ✅ Advanced workflows (CI/CD, batch processing, custom ID mapping)
 - ✅ Real-world examples (costume packs, large collections)
+- ✅ Schema conversion guide ⭐ NEW
 
 **Quick links:**
 - [Script Parameter Reference](ADVANCED_DOCUMENTATION.md#script-reference)
 - [Data Structure Specs](ADVANCED_DOCUMENTATION.md#data-structure-specifications)
 - [Real Data Examples](ADVANCED_DOCUMENTATION.md#real-data-examples)
 - [Advanced Workflows](ADVANCED_DOCUMENTATION.md#advanced-workflows)
+- [Schema Conversion Guide](ADVANCED_DOCUMENTATION.md#schema-conversion) ⭐ NEW
 
 ---
 
