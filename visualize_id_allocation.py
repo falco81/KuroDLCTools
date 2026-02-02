@@ -116,7 +116,7 @@ KURO_ENGINE_MAX_ID = 5000
 # Enhanced data loading functions
 # -------------------------
 
-def extract_enhanced_data_from_items(items, itemhelp_data=None):
+def extract_enhanced_data_from_items(items, itemhelp_data=None, name_data=None):
     """
     Extract enhanced data from already loaded items list.
     Works with any source format (JSON, TBL, P3A) since it processes the items directly.
@@ -124,6 +124,7 @@ def extract_enhanced_data_from_items(items, itemhelp_data=None):
     Args:
         items: List of item dictionaries
         itemhelp_data: Optional item help data with category names (REQUIRED for category names)
+        name_data: Optional character name data (REQUIRED for character names)
         
     Returns:
         dict: Enhanced data structure with items, categories, etc.
@@ -187,18 +188,18 @@ def extract_enhanced_data_from_items(items, itemhelp_data=None):
     
     enhanced_data['categories'] = category_names
     
-    # Character names mapping (common character IDs)
-    # TODO: Could be extracted from costume names or loaded from t_name.tbl
-    enhanced_data['character_names'] = {
-        0: 'Van',
-        1: 'Agnès',
-        2: 'Feri',
-        3: 'Aaron',
-        4: 'Risette',
-        5: 'Quatre',
-        6: 'Bergard',
-        7: 'Judith',
-    }
+    # Load subcategory names from itemhelp data
+    if itemhelp_data and itemhelp_data.get('subcategories'):
+        enhanced_data['subcategories'] = dict(itemhelp_data['subcategories'])
+    else:
+        enhanced_data['subcategories'] = {}
+    
+    # Load character names from name data (FULLY DYNAMIC - NO STATIC FALLBACK)
+    if name_data and name_data.get('character_names'):
+        enhanced_data['character_names'] = dict(name_data['character_names'])
+    else:
+        # NO name data - empty character names
+        enhanced_data['character_names'] = {}
     
     return enhanced_data
 
@@ -515,6 +516,110 @@ def load_itemhelp_data(source_type, source_file=None):
     return {'categories': {}, 'subcategories': {}}
 
 
+def load_name_data_from_json(json_file='t_name.json'):
+    """
+    Load character name data from JSON file.
+    
+    Returns:
+        dict: {'character_names': {id: name}}
+    """
+    try:
+        if not os.path.exists(json_file):
+            return {'character_names': {}}
+        
+        with open(json_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        character_names = {}
+        
+        # Extract from NameTableData
+        for section in data.get('data', []):
+            if section.get('name') == 'NameTableData':
+                for entry in section.get('data', []):
+                    char_id = entry.get('character_id')
+                    name = entry.get('name', '')
+                    
+                    if char_id is not None and name:
+                        character_names[char_id] = name
+        
+        return {'character_names': character_names}
+    
+    except Exception as e:
+        print(f"{Fore.YELLOW}Warning: Could not load {json_file}: {e}{Style.RESET_ALL}")
+        return {'character_names': {}}
+
+
+def load_name_data_from_tbl(tbl_file='t_name.tbl'):
+    """
+    Load character name data from TBL file.
+    
+    Returns:
+        dict: {'character_names': {id: name}}
+    """
+    if not HAS_LIBS:
+        return {'character_names': {}}
+    
+    try:
+        if not os.path.exists(tbl_file):
+            return {'character_names': {}}
+        
+        kt = kuro_tables()
+        table = kt.read_table(tbl_file)
+        
+        if not isinstance(table, dict):
+            return {'character_names': {}}
+        
+        character_names = {}
+        
+        # Extract from NameTableData
+        if 'NameTableData' in table:
+            for entry in table['NameTableData']:
+                char_id = entry.get('character_id')
+                name = entry.get('name', '')
+                
+                if char_id is not None and name:
+                    character_names[char_id] = name
+        
+        return {'character_names': character_names}
+    
+    except Exception as e:
+        print(f"{Fore.YELLOW}Warning: Could not load {tbl_file}: {e}{Style.RESET_ALL}")
+        return {'character_names': {}}
+
+
+def load_name_data(source_type, source_file=None):
+    """
+    Load character name data based on source type.
+    
+    Args:
+        source_type: 'json', 'tbl', 'original', or 'p3a'/'zzz'
+        source_file: Optional path to source file
+    
+    Returns:
+        dict: Character name data or empty dict if not available
+    """
+    if source_type == 'json':
+        return load_name_data_from_json('t_name.json')
+    
+    elif source_type == 'tbl':
+        name_data = load_name_data_from_tbl('t_name.tbl')
+        if not name_data['character_names'] and os.path.exists('t_name.tbl.tmp'):
+            # Try temp file from P3A extraction
+            name_data = load_name_data_from_tbl('t_name.tbl.tmp')
+        return name_data
+    
+    elif source_type == 'original':
+        return load_name_data_from_tbl('t_name.tbl.original')
+    
+    elif source_type in ('p3a', 'zzz'):
+        # Name data will be in t_name.tbl.tmp after P3A extraction
+        if os.path.exists('t_name.tbl.tmp'):
+            return load_name_data_from_tbl('t_name.tbl.tmp')
+        return {'character_names': {}}
+    
+    return {'character_names': {}}
+
+
 def load_all_json_data(project_dir='.'):
     """
     Load all available JSON data files for enhanced information display.
@@ -644,17 +749,18 @@ def load_all_json_data(project_dir='.'):
 
 def detect_sources(base_name='t_item'):
     """
-    Detect available data sources for items, shops, and itemhelp.
+    Detect available data sources for items and corresponding companion files (shop, itemhelp, name).
     
     Returns:
-        List of tuples: (source_type, item_path, shop_path_or_none, has_shop, itemhelp_path_or_none, has_itemhelp)
+        List of tuples: (source_type, item_path, shop_path, has_shop, 
+                        itemhelp_path, has_itemhelp, name_path, has_name)
     """
     sources = []
     json_file = f"{base_name}.json"
     tbl_original = f"{base_name}.tbl.original"
     tbl_file = f"{base_name}.tbl"
     
-    # Helper function to check for corresponding shop and itemhelp files
+    # Helper function to check for corresponding companion files
     def check_companion_files(source_type):
         # Check shop file
         has_shop = False
@@ -688,64 +794,81 @@ def detect_sources(base_name='t_item'):
             has_itemhelp = True
             itemhelp_path = 'p3a_internal'
         
-        return has_shop, shop_path, has_itemhelp, itemhelp_path
+        # Check name file
+        has_name = False
+        name_path = None
+        if source_type == 'json':
+            has_name = os.path.exists('t_name.json')
+            name_path = 't_name.json' if has_name else None
+        elif source_type == 'tbl':
+            has_name = os.path.exists('t_name.tbl')
+            name_path = 't_name.tbl' if has_name else None
+        elif source_type == 'original':
+            has_name = os.path.exists('t_name.tbl.original')
+            name_path = 't_name.tbl.original' if has_name else None
+        elif source_type in ('p3a', 'zzz'):
+            has_name = True
+            name_path = 'p3a_internal'
+        
+        return has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path
     
     # Check JSON
     if os.path.exists(json_file):
-        has_shop, shop_path, has_itemhelp, itemhelp_path = check_companion_files('json')
-        sources.append(('json', json_file, shop_path, has_shop, itemhelp_path, has_itemhelp))
+        has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path = check_companion_files('json')
+        sources.append(('json', json_file, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name))
     
     # Check TBL.original
     if os.path.exists(tbl_original):
-        has_shop, shop_path, has_itemhelp, itemhelp_path = check_companion_files('original')
-        sources.append(('original', tbl_original, shop_path, has_shop, itemhelp_path, has_itemhelp))
+        has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path = check_companion_files('original')
+        sources.append(('original', tbl_original, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name))
     
     # Check TBL
     if os.path.exists(tbl_file):
-        has_shop, shop_path, has_itemhelp, itemhelp_path = check_companion_files('tbl')
-        sources.append(('tbl', tbl_file, shop_path, has_shop, itemhelp_path, has_itemhelp))
+        has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path = check_companion_files('tbl')
+        sources.append(('tbl', tbl_file, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name))
     
-    # Check P3A files (always have shop and itemhelp data)
+    # Check P3A files (always have all companion data)
     if os.path.exists("script_en.p3a"):
-        sources.append(('p3a', 'script_en.p3a', 'p3a_internal', True, 'p3a_internal', True))
+        sources.append(('p3a', 'script_en.p3a', 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True))
     if os.path.exists("script_eng.p3a"):
-        sources.append(('p3a', 'script_eng.p3a', 'p3a_internal', True, 'p3a_internal', True))
+        sources.append(('p3a', 'script_eng.p3a', 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True))
     if os.path.exists("zzz_combined_tables.p3a"):
-        sources.append(('zzz', 'zzz_combined_tables.p3a', 'p3a_internal', True, 'p3a_internal', True))
+        sources.append(('zzz', 'zzz_combined_tables.p3a', 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True))
     
     return sources
 
 
 def select_source_interactive(sources):
-    """Let user select a source interactively with shop and itemhelp data info."""
+    """Let user select a source interactively with companion data info."""
     print(f"\n{Fore.CYAN}Multiple data sources detected. Select source to use:{Style.RESET_ALL}")
     
-    for i, (stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp) in enumerate(sources, 1):
+    for i, (stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name) in enumerate(sources, 1):
         # Build display string
         if stype in ('p3a', 'zzz'):
-            display = f"{path} (extract t_item.tbl, t_shop.tbl, t_itemhelp.tbl)"
-            info = f"{Fore.GREEN}[item + shop + category data in report]{Style.RESET_ALL}"
+            display = f"{path} (extract t_item.tbl, t_shop.tbl, t_itemhelp.tbl, t_name.tbl)"
         else:
             display_parts = [path]
             if has_shop and shop_path:
                 display_parts.append(shop_path)
             if has_itemhelp and itemhelp_path:
                 display_parts.append(itemhelp_path)
+            if has_name and name_path:
+                display_parts.append(name_path)
             display = ", ".join(display_parts)
-            
-            # Build info string
-            data_types = ['item']
-            if has_shop:
-                data_types.append('shop')
-            if has_itemhelp:
-                data_types.append('category')
-            
-            if len(data_types) == 3:
-                info = f"{Fore.GREEN}[item + shop + category data in report]{Style.RESET_ALL}"
-            elif len(data_types) == 2:
-                info = f"{Fore.CYAN}[{' + '.join(data_types)} data in report]{Style.RESET_ALL}"
-            else:
-                info = f"{Fore.YELLOW}[only item data in report]{Style.RESET_ALL}"
+        
+        # Build info string
+        data_types = []
+        if has_shop:
+            data_types.append('shop')
+        if has_itemhelp:
+            data_types.append('categories')
+        if has_name:
+            data_types.append('character names')
+        
+        if data_types:
+            info = f"{Fore.GREEN}[item + {' + '.join(data_types)} data]{Style.RESET_ALL}"
+        else:
+            info = f"{Fore.YELLOW}[only item data]{Style.RESET_ALL}"
         
         print(f"  {Fore.YELLOW}{i}{Style.RESET_ALL}) {display} {info}")
     
@@ -937,13 +1060,14 @@ def load_items_from_tbl(tbl_file):
 def load_items(force_source=None, no_interactive=False, keep_extracted=False):
     """
     Load item data from any supported source format.
-    Also detects and loads corresponding shop and itemhelp data if available.
+    Also detects and loads corresponding companion data (shop, itemhelp, name) if available.
     
     Returns:
         Tuple of (items_list, source_info) or (None, None) on error
-        source_info contains: {'type', 'path', 'has_shop', 'shop_path', 'has_itemhelp', 'itemhelp_path'}
+        source_info contains: {'type', 'path', 'has_shop', 'shop_path', 'has_itemhelp', 
+                               'itemhelp_path', 'has_name', 'name_path'}
     """
-    # Detect available sources (now includes shop and itemhelp info)
+    # Detect available sources (now includes shop, itemhelp, and name info)
     sources = detect_sources('t_item')
     
     if not sources:
@@ -958,23 +1082,25 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
     
     # Filter by forced source if specified
     if force_source:
-        sources = [(t, p, sp, hs, ip, hi) for t, p, sp, hs, ip, hi in sources if t == force_source]
+        sources = [(t, p, sp, hs, ip, hi, np, hn) for t, p, sp, hs, ip, hi, np, hn in sources if t == force_source]
         if not sources:
             print(f"{Fore.RED}Error: No sources found matching type '{force_source}'{Style.RESET_ALL}")
             return None, None
     
     # Select source
     if len(sources) == 1 or no_interactive:
-        stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp = sources[0]
+        stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name = sources[0]
         # Build display message
         display_parts = [path]
         if has_shop and shop_path and shop_path != 'p3a_internal':
             display_parts.append(shop_path)
         if has_itemhelp and itemhelp_path and itemhelp_path != 'p3a_internal':
             display_parts.append(itemhelp_path)
+        if has_name and name_path and name_path != 'p3a_internal':
+            display_parts.append(name_path)
         print(f"{Fore.CYAN}Using source: {', '.join(display_parts)}{Style.RESET_ALL}")
     else:
-        stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp = select_source_interactive(sources)
+        stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name = select_source_interactive(sources)
     
     # Load data based on source type
     temp_files = []
@@ -983,12 +1109,14 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
     try:
         if stype == 'json':
             items = load_items_from_json(path)
-            # Build display path including shop and itemhelp files if available
+            # Build display path including all companion files if available
             display_parts = [path]
             if has_shop and shop_path:
                 display_parts.append(shop_path)
             if has_itemhelp and itemhelp_path:
                 display_parts.append(itemhelp_path)
+            if has_name and name_path:
+                display_parts.append(name_path)
             display_path = ", ".join(display_parts)
             
             source_info = {
@@ -997,17 +1125,21 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                 'has_shop': has_shop,
                 'shop_path': shop_path,
                 'has_itemhelp': has_itemhelp,
-                'itemhelp_path': itemhelp_path
+                'itemhelp_path': itemhelp_path,
+                'has_name': has_name,
+                'name_path': name_path
             }
         
         elif stype in ('tbl', 'original'):
             items = load_items_from_tbl(path)
-            # Build display path including shop and itemhelp files if available
+            # Build display path including all companion files if available
             display_parts = [path]
             if has_shop and shop_path:
                 display_parts.append(shop_path)
             if has_itemhelp and itemhelp_path:
                 display_parts.append(itemhelp_path)
+            if has_name and name_path:
+                display_parts.append(name_path)
             display_path = ", ".join(display_parts)
             
             source_info = {
@@ -1016,22 +1148,25 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                 'has_shop': has_shop,
                 'shop_path': shop_path,
                 'has_itemhelp': has_itemhelp,
-                'itemhelp_path': itemhelp_path
+                'itemhelp_path': itemhelp_path,
+                'has_name': has_name,
+                'name_path': name_path
             }
         
         elif stype in ('p3a', 'zzz'):
-            # Extract t_item.tbl, t_shop.tbl, and t_itemhelp.tbl from P3A
+            # Extract t_item.tbl, t_shop.tbl, t_itemhelp.tbl, and t_name.tbl from P3A
             tables_to_extract = [
                 ('t_item.tbl', 't_item.tbl.tmp'),
                 ('t_shop.tbl', 't_shop.tbl.tmp'),
-                ('t_itemhelp.tbl', 't_itemhelp.tbl.tmp')
+                ('t_itemhelp.tbl', 't_itemhelp.tbl.tmp'),
+                ('t_name.tbl', 't_name.tbl.tmp')
             ]
             
             results = extract_multiple_from_p3a(path, tables_to_extract)
             
             if results.get('t_item.tbl', False):
                 extracted_temp = True
-                temp_files = ['t_item.tbl.tmp', 't_shop.tbl.tmp', 't_itemhelp.tbl.tmp']
+                temp_files = ['t_item.tbl.tmp', 't_shop.tbl.tmp', 't_itemhelp.tbl.tmp', 't_name.tbl.tmp']
                 items = load_items_from_tbl('t_item.tbl.tmp')
                 
                 # Build source info path
@@ -1042,6 +1177,8 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                     extracted_files.append('t_shop.tbl.tmp')
                 if results.get('t_itemhelp.tbl'):
                     extracted_files.append('t_itemhelp.tbl.tmp')
+                if results.get('t_name.tbl'):
+                    extracted_files.append('t_name.tbl.tmp')
                 
                 source_info = {
                     'type': stype,
@@ -1049,7 +1186,9 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                     'has_shop': results.get('t_shop.tbl', False),
                     'shop_path': 't_shop.tbl.tmp' if results.get('t_shop.tbl') else None,
                     'has_itemhelp': results.get('t_itemhelp.tbl', False),
-                    'itemhelp_path': 't_itemhelp.tbl.tmp' if results.get('t_itemhelp.tbl') else None
+                    'itemhelp_path': 't_itemhelp.tbl.tmp' if results.get('t_itemhelp.tbl') else None,
+                    'has_name': results.get('t_name.tbl', False),
+                    'name_path': 't_name.tbl.tmp' if results.get('t_name.tbl') else None
                 }
             else:
                 print(f"{Fore.RED}Failed to extract t_item.tbl from {path}{Style.RESET_ALL}")
@@ -1060,9 +1199,9 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
             return None, None
         
         # Cleanup temporary files
-        # If we have shop or itemhelp data to load, defer cleanup until after data is loaded
+        # If we have any companion data to load, defer cleanup until after data is loaded
         if extracted_temp and not keep_extracted:
-            if has_shop or has_itemhelp:
+            if has_shop or has_itemhelp or has_name:
                 # Defer cleanup - will be done in main() after loading all data
                 source_info['temp_files'] = temp_files
                 print(f"{Fore.CYAN}Temporary files will be cleaned up after loading companion data{Style.RESET_ALL}")
@@ -1887,6 +2026,10 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                     # Get category name
                     category_name = enhanced_data.get('categories', {}).get(category, f'Category {category}')
                     
+                    # Get subcategory name
+                    subcategory_key = (category, subcategory)
+                    subcategory_name = enhanced_data.get('subcategories', {}).get(subcategory_key, '')
+                    
                     # Build attributes
                     if name:
                         data_attrs += f' data-name="{name}"'
@@ -1895,6 +2038,8 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                     data_attrs += f' data-category="{category}"'
                     data_attrs += f' data-category-name="{escape_attr(category_name)}"'
                     data_attrs += f' data-subcategory="{subcategory}"'
+                    if subcategory_name:
+                        data_attrs += f' data-subcategory-name="{escape_attr(subcategory_name)}"'
                     data_attrs += f' data-price="{price}"'
                     data_attrs += f' data-stack="{stack_size}"'
                     
@@ -1915,6 +2060,7 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                         char_name = enhanced_data.get('character_names', {}).get(char_id, f'Character {char_id}')
                         data_attrs += f' data-costume="{costume_name}"'
                         data_attrs += f' data-character="{escape_attr(char_name)}"'
+                        data_attrs += f' data-character-id="{char_id}"'
                     
                     # Check for shop info
                     shop_data = enhanced_data.get('shop_data')
@@ -2058,11 +2204,13 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                 const category = cell.getAttribute('data-category');
                 const categoryName = cell.getAttribute('data-category-name');
                 const subcategory = cell.getAttribute('data-subcategory');
+                const subcategoryName = cell.getAttribute('data-subcategory-name');
                 const price = cell.getAttribute('data-price');
                 const stack = cell.getAttribute('data-stack');
                 const stats = cell.getAttribute('data-stats');
                 const costume = cell.getAttribute('data-costume');
                 const character = cell.getAttribute('data-character');
+                const characterId = cell.getAttribute('data-character-id');
                 const shops = cell.getAttribute('data-shops');
                 
                 // Build tooltip content
@@ -2088,9 +2236,15 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                 
                 if (categoryName) {
                     content += '<div class="tooltip-section">';
-                    content += '<span class="tooltip-badge">' + categoryName + '</span>';
+                    // Show Category with ID
+                    content += '<span class="tooltip-badge">' + categoryName + ' (ID: ' + category + ')</span>';
+                    // Show Subcategory with ID if available
                     if (subcategory && subcategory !== '0') {
-                        content += '<span class="tooltip-badge">Subcat: ' + subcategory + '</span>';
+                        if (subcategoryName) {
+                            content += '<span class="tooltip-badge">' + subcategoryName + ' (ID: ' + subcategory + ')</span>';
+                        } else {
+                            content += '<span class="tooltip-badge">Subcategory ' + subcategory + '</span>';
+                        }
                     }
                     content += '</div>';
                 }
@@ -2098,7 +2252,11 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                 if (character) {
                     content += '<div class="tooltip-section">';
                     content += '<div class="tooltip-label">Character</div>';
+                    // Show Character with ID
                     content += '<div class="tooltip-value">' + character;
+                    if (characterId) {
+                        content += ' (ID: ' + characterId + ')';
+                    }
                     if (costume) {
                         content += ' - ' + costume;
                     }
@@ -2445,9 +2603,18 @@ def main():
             categories_loaded = len(itemhelp_data['categories'])
             print(f"  {Fore.GREEN}✓{Style.RESET_ALL} Category names: {categories_loaded} categories from t_itemhelp")
     
+    # Load character name data if available
+    name_data = None
+    if source_info.get('has_name'):
+        print(f"{Fore.CYAN}Loading character names...{Style.RESET_ALL}")
+        name_data = load_name_data(source_info['type'], source_info.get('name_path'))
+        if name_data and name_data.get('character_names'):
+            characters_loaded = len(name_data['character_names'])
+            print(f"  {Fore.GREEN}✓{Style.RESET_ALL} Character names: {characters_loaded} characters from t_name")
+    
     # Extract enhanced data from loaded items (works with any source: JSON, TBL, P3A)
     print(f"{Fore.CYAN}Extracting enhanced data from items...{Style.RESET_ALL}")
-    enhanced_data = extract_enhanced_data_from_items(items, itemhelp_data)
+    enhanced_data = extract_enhanced_data_from_items(items, itemhelp_data, name_data)
     
     # Load costume data from available sources
     costume_data = load_costume_data('.')
