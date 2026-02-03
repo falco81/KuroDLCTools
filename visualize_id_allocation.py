@@ -204,65 +204,6 @@ def extract_enhanced_data_from_items(items, itemhelp_data=None, name_data=None):
     return enhanced_data
 
 
-def load_costume_data(project_dir='.'):
-    """
-    Load costume data from available sources (JSON or TBL).
-    
-    Args:
-        project_dir: Directory to search for costume data
-        
-    Returns:
-        dict: Costume mappings {item_id: costume_info}
-    """
-    costumes = {}
-    
-    # Try JSON first
-    try:
-        t_costume_path = os.path.join(project_dir, 't_costume.json')
-        if os.path.exists(t_costume_path):
-            with open(t_costume_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                
-            # Extract CostumeParam
-            for section in data.get('data', []):
-                if section.get('name') == 'CostumeParam':
-                    for costume in section.get('data', []):
-                        item_id = costume.get('item_id')
-                        if item_id is not None:
-                            costumes[item_id] = {
-                                'character_id': costume.get('character_id', 0),
-                                'costume_name': costume.get('name', ''),
-                                'attach_name': costume.get('attach_name', '')
-                            }
-            if costumes:
-                return costumes
-    except Exception as e:
-        pass  # Try next source
-    
-    # Try TBL if JSON not available
-    if not HAS_LIBS:
-        return costumes
-        
-    try:
-        t_costume_tbl = os.path.join(project_dir, 't_costume.tbl')
-        if os.path.exists(t_costume_tbl):
-            kuro = kuro_tables(t_costume_tbl, 'Kuro1', 't_costume.tbl')
-            costume_data = kuro.read_table('CostumeParam')
-            
-            if costume_data:
-                for costume in costume_data:
-                    item_id = costume.get('item_id')
-                    if item_id is not None:
-                        costumes[item_id] = {
-                            'character_id': costume.get('character_id', 0),
-                            'costume_name': costume.get('name', ''),
-                            'attach_name': costume.get('attach_name', '')
-                        }
-    except Exception as e:
-        pass  # Silently fail
-    
-    return costumes
-
 
 def load_shop_data_from_json(json_file='t_shop.json'):
     """
@@ -616,8 +557,241 @@ def load_name_data(source_type, source_file=None):
         if os.path.exists('t_name.tbl.tmp'):
             return load_name_data_from_tbl('t_name.tbl.tmp')
         return {'character_names': {}}
+
+def load_costume_data_from_json(json_file='t_costume.json'):
+    """
+    Load costume data from JSON file.
+    
+    Returns:
+        dict: {'costumes': {item_id: costume_info}}
+    """
+    try:
+        if not os.path.exists(json_file):
+            return {'costumes': {}}
+        
+        with open(json_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        costumes = {}
+        
+        # Extract from CostumeParam
+        for section in data.get('data', []):
+            if section.get('name') == 'CostumeParam':
+                for entry in section.get('data', []):
+                    item_id = entry.get('item_id')
+                    character_id = entry.get('character_id')
+                    name = entry.get('name', '')
+                    attach_name = entry.get('attach_name', '')
+                    
+                    if item_id is not None:
+                        costumes[item_id] = {
+                            'character_id': character_id,
+                            'name': name,
+                            'attach_name': attach_name
+                        }
+        
+        return {'costumes': costumes}
+    
+    except Exception as e:
+        print(f"{Fore.YELLOW}Warning: Could not load {json_file}: {e}{Style.RESET_ALL}")
+        return {'costumes': {}}
+
+
+def load_costume_data_from_tbl(tbl_file='t_costume.tbl'):
+    """
+    Load costume data from TBL file.
+    
+    Returns:
+        dict: {'costumes': {item_id: costume_info}}
+    """
+    if not HAS_LIBS:
+        return {'costumes': {}}
+    
+    try:
+        if not os.path.exists(tbl_file):
+            return {'costumes': {}}
+        
+        kt = kuro_tables()
+        table = kt.read_table(tbl_file)
+        
+        if not isinstance(table, dict):
+            return {'costumes': {}}
+        
+        costumes = {}
+        
+        # Extract from CostumeParam
+        if 'CostumeParam' in table:
+            for entry in table['CostumeParam']:
+                item_id = entry.get('item_id')
+                # TBL uses different field names than JSON!
+                character_id = entry.get('char_restrict')  # not 'character_id'
+                name = entry.get('mdl_name', '')  # not 'name'
+                attach_name = entry.get('attach_name', '')
+                
+                if item_id is not None:
+                    costumes[item_id] = {
+                        'character_id': character_id,
+                        'name': name,
+                        'attach_name': attach_name
+                    }
+        
+        return {'costumes': costumes}
+    
+    except Exception as e:
+        print(f"{Fore.YELLOW}Warning: Could not load {tbl_file}: {e}{Style.RESET_ALL}")
+        return {'costumes': {}}
+
+
+def load_costume_data(source_type, source_file=None):
+    """
+    Load costume data based on source type.
+    
+    Args:
+        source_type: 'json', 'tbl', 'original', or 'p3a'/'zzz'
+        source_file: Optional path to source file
+    
+    Returns:
+        dict: Costume data or empty dict if not available
+    """
+    if source_type == 'json':
+        return load_costume_data_from_json('t_costume.json')
+    
+    elif source_type == 'tbl':
+        costume_data = load_costume_data_from_tbl('t_costume.tbl')
+        if not costume_data['costumes'] and os.path.exists('t_costume.tbl.tmp'):
+            # Try temp file from P3A extraction
+            costume_data = load_costume_data_from_tbl('t_costume.tbl.tmp')
+        return costume_data
+    
+    elif source_type == 'original':
+        return load_costume_data_from_tbl('t_costume.tbl.original')
+    
+    elif source_type in ('p3a', 'zzz'):
+        # Costume data will be in t_costume.tbl.tmp after P3A extraction
+        if os.path.exists('t_costume.tbl.tmp'):
+            return load_costume_data_from_tbl('t_costume.tbl.tmp')
+        return {'costumes': {}}
+    
+    return {'costumes': {}}
+
     
     return {'character_names': {}}
+
+
+def load_dlc_data_from_json(json_file='t_dlc.json'):
+    """
+    Load DLC data from JSON file.
+    Creates mapping: {item_id: {'dlc_id': id, 'dlc_name': name}}
+    
+    Returns:
+        dict: {'dlc_items': {item_id: dlc_info}}
+    """
+    try:
+        if not os.path.exists(json_file):
+            return {'dlc_items': {}}
+        
+        with open(json_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        dlc_items = {}
+        
+        # Extract DLC data
+        if isinstance(data, dict) and 'data' in data:
+            for section in data['data']:
+                if section.get('name') == 'DLCTableData':
+                    for entry in section.get('data', []):
+                        dlc_id = entry.get('int1')  # DLC ID
+                        dlc_name = entry.get('text1', '')  # DLC name
+                        item_ids = entry.get('arr1', [])  # Array of item IDs
+                        
+                        if dlc_id and dlc_name:
+                            for item_id in item_ids:
+                                dlc_items[item_id] = {
+                                    'dlc_id': dlc_id,
+                                    'dlc_name': dlc_name
+                                }
+        
+        return {'dlc_items': dlc_items}
+    
+    except Exception as e:
+        print(f"{Fore.YELLOW}Warning: Could not load {json_file}: {e}{Style.RESET_ALL}")
+        return {'dlc_items': {}}
+
+
+def load_dlc_data_from_tbl(tbl_file='t_dlc.tbl'):
+    """
+    Load DLC data from TBL file.
+    
+    Returns:
+        dict: {'dlc_items': {item_id: dlc_info}}
+    """
+    if not HAS_LIBS:
+        return {'dlc_items': {}}
+    
+    try:
+        if not os.path.exists(tbl_file):
+            return {'dlc_items': {}}
+        
+        kt = kuro_tables()
+        table = kt.read_table(tbl_file)
+        
+        if not isinstance(table, dict):
+            return {'dlc_items': {}}
+        
+        dlc_items = {}
+        
+        # Extract from DLCTableData
+        if 'DLCTableData' in table:
+            for entry in table['DLCTableData']:
+                dlc_id = entry.get('id')
+                dlc_name = entry.get('name', '')
+                item_ids = entry.get('items', [])
+                
+                if dlc_id and dlc_name:
+                    for item_id in item_ids:
+                        dlc_items[item_id] = {
+                            'dlc_id': dlc_id,
+                            'dlc_name': dlc_name
+                        }
+        
+        return {'dlc_items': dlc_items}
+    
+    except Exception as e:
+        print(f"{Fore.YELLOW}Warning: Could not load {tbl_file}: {e}{Style.RESET_ALL}")
+        return {'dlc_items': {}}
+
+
+def load_dlc_data(source_type, source_file=None):
+    """
+    Load DLC data based on source type.
+    
+    Args:
+        source_type: 'json', 'tbl', 'original', or 'p3a'/'zzz'
+        source_file: Optional path to source file
+    
+    Returns:
+        dict: DLC data or empty dict if not available
+    """
+    if source_type == 'json':
+        return load_dlc_data_from_json('t_dlc.json')
+    
+    elif source_type == 'tbl':
+        dlc_data = load_dlc_data_from_tbl('t_dlc.tbl')
+        if not dlc_data['dlc_items'] and os.path.exists('t_dlc.tbl.tmp'):
+            # Try temp file from P3A extraction
+            dlc_data = load_dlc_data_from_tbl('t_dlc.tbl.tmp')
+        return dlc_data
+    
+    elif source_type == 'original':
+        return load_dlc_data_from_tbl('t_dlc.tbl.original')
+    
+    elif source_type in ('p3a', 'zzz'):
+        # DLC data will be in t_dlc.tbl.tmp after P3A extraction
+        if os.path.exists('t_dlc.tbl.tmp'):
+            return load_dlc_data_from_tbl('t_dlc.tbl.tmp')
+        return {'dlc_items': {}}
+    
+    return {'dlc_items': {}}
 
 
 def load_all_json_data(project_dir='.'):
@@ -810,30 +984,64 @@ def detect_sources(base_name='t_item'):
             has_name = True
             name_path = 'p3a_internal'
         
-        return has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path
+        
+        # Check costume file
+        has_costume = False
+        costume_path = None
+        if source_type == 'json':
+            has_costume = os.path.exists('t_costume.json')
+            costume_path = 't_costume.json' if has_costume else None
+        elif source_type == 'tbl':
+            has_costume = os.path.exists('t_costume.tbl')
+            costume_path = 't_costume.tbl' if has_costume else None
+        elif source_type == 'original':
+            has_costume = os.path.exists('t_costume.tbl.original')
+            costume_path = 't_costume.tbl.original' if has_costume else None
+        elif source_type in ('p3a', 'zzz'):
+            has_costume = True
+            costume_path = 'p3a_internal'
+        
+        
+        # Check dlc file
+        has_dlc = False
+        dlc_path = None
+        if source_type == 'json':
+            has_dlc = os.path.exists('t_dlc.json')
+            dlc_path = 't_dlc.json' if has_dlc else None
+        elif source_type == 'tbl':
+            has_dlc = os.path.exists('t_dlc.tbl')
+            dlc_path = 't_dlc.tbl' if has_dlc else None
+        elif source_type == 'original':
+            has_dlc = os.path.exists('t_dlc.tbl.original')
+            dlc_path = 't_dlc.tbl.original' if has_dlc else None
+        elif source_type in ('p3a', 'zzz'):
+            has_dlc = True
+            dlc_path = 'p3a_internal'
+        
+        return has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path, has_costume, costume_path, has_dlc, dlc_path
     
     # Check JSON
     if os.path.exists(json_file):
-        has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path = check_companion_files('json')
-        sources.append(('json', json_file, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name))
+        has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path, has_costume, costume_path, has_dlc, dlc_path = check_companion_files('json')
+        sources.append(('json', json_file, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name, costume_path, has_costume, dlc_path, has_dlc))
     
     # Check TBL.original
     if os.path.exists(tbl_original):
-        has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path = check_companion_files('original')
-        sources.append(('original', tbl_original, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name))
+        has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path, has_costume, costume_path, has_dlc, dlc_path = check_companion_files('original')
+        sources.append(('original', tbl_original, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name, costume_path, has_costume, dlc_path, has_dlc))
     
     # Check TBL
     if os.path.exists(tbl_file):
-        has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path = check_companion_files('tbl')
-        sources.append(('tbl', tbl_file, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name))
+        has_shop, shop_path, has_itemhelp, itemhelp_path, has_name, name_path, has_costume, costume_path, has_dlc, dlc_path = check_companion_files('tbl')
+        sources.append(('tbl', tbl_file, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name, costume_path, has_costume, dlc_path, has_dlc))
     
     # Check P3A files (always have all companion data)
     if os.path.exists("script_en.p3a"):
-        sources.append(('p3a', 'script_en.p3a', 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True))
+        sources.append(('p3a', 'script_en.p3a', 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True))
     if os.path.exists("script_eng.p3a"):
-        sources.append(('p3a', 'script_eng.p3a', 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True))
+        sources.append(('p3a', 'script_eng.p3a', 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True))
     if os.path.exists("zzz_combined_tables.p3a"):
-        sources.append(('zzz', 'zzz_combined_tables.p3a', 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True))
+        sources.append(('zzz', 'zzz_combined_tables.p3a', 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True, 'p3a_internal', True))
     
     return sources
 
@@ -842,10 +1050,10 @@ def select_source_interactive(sources):
     """Let user select a source interactively with companion data info."""
     print(f"\n{Fore.CYAN}Multiple data sources detected. Select source to use:{Style.RESET_ALL}")
     
-    for i, (stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name) in enumerate(sources, 1):
-        # Build display string
+    for i, (stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name, costume_path, has_costume, dlc_path, has_dlc) in enumerate(sources, 1):
+        # Build display string with better formatting (files on separate lines)
         if stype in ('p3a', 'zzz'):
-            display = f"{path} (extract t_item.tbl, t_shop.tbl, t_itemhelp.tbl, t_name.tbl)"
+            display = f"{path} (extract t_item.tbl, t_shop.tbl, t_itemhelp.tbl, t_name.tbl, t_costume.tbl, t_dlc.tbl)"
         else:
             display_parts = [path]
             if has_shop and shop_path:
@@ -854,6 +1062,12 @@ def select_source_interactive(sources):
                 display_parts.append(itemhelp_path)
             if has_name and name_path:
                 display_parts.append(name_path)
+            if has_costume and costume_path:
+                display_parts.append(costume_path)
+            if has_dlc and dlc_path:
+                display_parts.append(dlc_path)
+            
+            # Format with files on same line, separated by commas
             display = ", ".join(display_parts)
         
         # Build info string
@@ -864,13 +1078,19 @@ def select_source_interactive(sources):
             data_types.append('categories')
         if has_name:
             data_types.append('character names')
+        if has_costume:
+            data_types.append('costumes')
+        if has_dlc:
+            data_types.append('dlc')
         
         if data_types:
-            info = f"{Fore.GREEN}[item + {' + '.join(data_types)} data]{Style.RESET_ALL}"
+            info = f"[item + {' + '.join(data_types)} data]"
         else:
-            info = f"{Fore.YELLOW}[only item data]{Style.RESET_ALL}"
+            info = f"[only item data]"
         
-        print(f"  {Fore.YELLOW}{i}{Style.RESET_ALL}) {display} {info}")
+        # Print with info on separate line
+        print(f"  {Fore.YELLOW}{i}{Style.RESET_ALL}) {display}")
+        print(f"     {Fore.GREEN}{info}{Style.RESET_ALL}")
     
     while True:
         try:
@@ -954,19 +1174,20 @@ def extract_multiple_from_p3a(p3a_file, tables_to_extract):
             
             # Extract each requested table
             for table_name, out_file in tables_to_extract:
+                print(f"{Fore.CYAN}Extracting {table_name} from {p3a_file}...{Style.RESET_ALL}")
+                
                 if table_name in entry_dict:
                     try:
-                        print(f"{Fore.CYAN}Extracting {table_name} from {p3a_file}...{Style.RESET_ALL}")
                         data = p3a.read_file(entry_dict[table_name], p3a_dict)
                         with open(out_file, 'wb') as f:
                             f.write(data)
-                        print(f"{Fore.GREEN}  ✓ Extracted to {out_file}{Style.RESET_ALL}")
+                        print(f"{Fore.GREEN}  [OK] Extracted to {out_file}{Style.RESET_ALL}")
                         results[table_name] = True
                     except Exception as e:
-                        print(f"{Fore.RED}  ✗ Failed to extract {table_name}: {e}{Style.RESET_ALL}")
+                        print(f"{Fore.RED}  [FAILED] Failed to extract {table_name}: {e}{Style.RESET_ALL}")
                         results[table_name] = False
                 else:
-                    print(f"{Fore.YELLOW}  ⚠ {table_name} not found in archive{Style.RESET_ALL}")
+                    print(f"{Fore.YELLOW}  [WARNING] {table_name} not found in archive{Style.RESET_ALL}")
                     results[table_name] = False
         
         return results
@@ -1082,14 +1303,14 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
     
     # Filter by forced source if specified
     if force_source:
-        sources = [(t, p, sp, hs, ip, hi, np, hn) for t, p, sp, hs, ip, hi, np, hn in sources if t == force_source]
+        sources = [(t, p, sp, hs, ip, hi, np, hn, cp, hc) for t, p, sp, hs, ip, hi, np, hn, cp, hc in sources if t == force_source]
         if not sources:
             print(f"{Fore.RED}Error: No sources found matching type '{force_source}'{Style.RESET_ALL}")
             return None, None
     
     # Select source
     if len(sources) == 1 or no_interactive:
-        stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name = sources[0]
+        stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name, costume_path, has_costume, dlc_path, has_dlc = sources[0]
         # Build display message
         display_parts = [path]
         if has_shop and shop_path and shop_path != 'p3a_internal':
@@ -1100,7 +1321,7 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
             display_parts.append(name_path)
         print(f"{Fore.CYAN}Using source: {', '.join(display_parts)}{Style.RESET_ALL}")
     else:
-        stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name = select_source_interactive(sources)
+        stype, path, shop_path, has_shop, itemhelp_path, has_itemhelp, name_path, has_name, costume_path, has_costume, dlc_path, has_dlc = select_source_interactive(sources)
     
     # Load data based on source type
     temp_files = []
@@ -1117,6 +1338,8 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                 display_parts.append(itemhelp_path)
             if has_name and name_path:
                 display_parts.append(name_path)
+            if has_costume and costume_path:
+                display_parts.append(costume_path)
             display_path = ", ".join(display_parts)
             
             source_info = {
@@ -1127,7 +1350,11 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                 'has_itemhelp': has_itemhelp,
                 'itemhelp_path': itemhelp_path,
                 'has_name': has_name,
-                'name_path': name_path
+                'name_path': name_path,
+                'has_costume': has_costume,
+                'costume_path': costume_path,
+                'has_dlc': has_dlc,
+                'dlc_path': dlc_path
             }
         
         elif stype in ('tbl', 'original'):
@@ -1140,6 +1367,10 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                 display_parts.append(itemhelp_path)
             if has_name and name_path:
                 display_parts.append(name_path)
+            if has_costume and costume_path:
+                display_parts.append(costume_path)
+            if has_dlc and dlc_path:
+                display_parts.append(dlc_path)
             display_path = ", ".join(display_parts)
             
             source_info = {
@@ -1150,7 +1381,11 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                 'has_itemhelp': has_itemhelp,
                 'itemhelp_path': itemhelp_path,
                 'has_name': has_name,
-                'name_path': name_path
+                'name_path': name_path,
+                'has_costume': has_costume,
+                'costume_path': costume_path,
+                'has_dlc': has_dlc,
+                'dlc_path': dlc_path
             }
         
         elif stype in ('p3a', 'zzz'):
@@ -1159,14 +1394,16 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                 ('t_item.tbl', 't_item.tbl.tmp'),
                 ('t_shop.tbl', 't_shop.tbl.tmp'),
                 ('t_itemhelp.tbl', 't_itemhelp.tbl.tmp'),
-                ('t_name.tbl', 't_name.tbl.tmp')
+                ('t_name.tbl', 't_name.tbl.tmp'),
+                ('t_costume.tbl', 't_costume.tbl.tmp'),
+                ('t_dlc.tbl', 't_dlc.tbl.tmp')
             ]
             
             results = extract_multiple_from_p3a(path, tables_to_extract)
             
             if results.get('t_item.tbl', False):
                 extracted_temp = True
-                temp_files = ['t_item.tbl.tmp', 't_shop.tbl.tmp', 't_itemhelp.tbl.tmp', 't_name.tbl.tmp']
+                temp_files = ['t_item.tbl.tmp', 't_shop.tbl.tmp', 't_itemhelp.tbl.tmp', 't_name.tbl.tmp', 't_costume.tbl.tmp', 't_dlc.tbl.tmp']
                 items = load_items_from_tbl('t_item.tbl.tmp')
                 
                 # Build source info path
@@ -1179,6 +1416,10 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                     extracted_files.append('t_itemhelp.tbl.tmp')
                 if results.get('t_name.tbl'):
                     extracted_files.append('t_name.tbl.tmp')
+                if results.get('t_costume.tbl'):
+                    extracted_files.append('t_costume.tbl.tmp')
+                if results.get('t_dlc.tbl'):
+                    extracted_files.append('t_dlc.tbl.tmp')
                 
                 source_info = {
                     'type': stype,
@@ -1188,7 +1429,11 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
                     'has_itemhelp': results.get('t_itemhelp.tbl', False),
                     'itemhelp_path': 't_itemhelp.tbl.tmp' if results.get('t_itemhelp.tbl') else None,
                     'has_name': results.get('t_name.tbl', False),
-                    'name_path': 't_name.tbl.tmp' if results.get('t_name.tbl') else None
+                    'name_path': 't_name.tbl.tmp' if results.get('t_name.tbl') else None,
+                    'has_costume': results.get('t_costume.tbl', False),
+                    'costume_path': 't_costume.tbl.tmp' if results.get('t_costume.tbl') else None,
+                    'has_dlc': results.get('t_dlc.tbl', False),
+                    'dlc_path': 't_dlc.tbl.tmp' if results.get('t_dlc.tbl') else None
                 }
             else:
                 print(f"{Fore.RED}Failed to extract t_item.tbl from {path}{Style.RESET_ALL}")
@@ -1201,16 +1446,23 @@ def load_items(force_source=None, no_interactive=False, keep_extracted=False):
         # Cleanup temporary files
         # If we have any companion data to load, defer cleanup until after data is loaded
         if extracted_temp and not keep_extracted:
-            if has_shop or has_itemhelp or has_name:
+            if has_shop or has_itemhelp or has_name or has_costume:
                 # Defer cleanup - will be done in main() after loading all data
                 source_info['temp_files'] = temp_files
                 print(f"{Fore.CYAN}Temporary files will be cleaned up after loading companion data{Style.RESET_ALL}")
             else:
-                # No companion data - cleanup now
+                # No companion data - cleanup now (silently collect files)
+                cleaned_files = []
                 for temp_file in temp_files:
                     if os.path.exists(temp_file):
                         os.remove(temp_file)
-                        print(f"{Fore.CYAN}Cleaned up temporary file: {temp_file}{Style.RESET_ALL}")
+                        cleaned_files.append(temp_file)
+                
+                # Print summary if files were cleaned
+                if cleaned_files:
+                    print(f"{Fore.CYAN}Cleaned up temporary files:{Style.RESET_ALL}")
+                    for temp_file in cleaned_files:
+                        print(f"  - {temp_file}")
         
         return items, source_info
     
@@ -1338,7 +1590,11 @@ def visualize_console(analysis, block_size=None, source_info=None):
     print(f"{Fore.CYAN}{'='*80}{Style.RESET_ALL}\n")
     
     if source_info:
-        print(f"{Fore.YELLOW}Source:{Style.RESET_ALL} {source_info['path']}\n")
+        import textwrap
+        # Zalomení dlouhého source path na max 78 znaků
+        source_path = source_info['path']
+        wrapped_path = textwrap.fill(source_path, width=78, subsequent_indent='          ')
+        print(f"{Fore.YELLOW}Source:{Style.RESET_ALL} {wrapped_path}\n")
     
     # Statistics
     print(f"{Fore.CYAN}Statistics:{Style.RESET_ALL}")
@@ -1436,6 +1692,7 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ID Allocation Map</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {{
             margin: 0;
@@ -1597,6 +1854,14 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
             min-width: 280px;
             max-width: 400px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            border: 1px solid rgba(255,255,255,0.2);
+            transition: border 0.2s ease;
+        }}
+        
+        .tooltip.pinned {{
+            cursor: pointer;
+            box-shadow: 0 8px 32px rgba(102, 126, 234, 0.4);
+            border: 2px solid #667eea;
         }}
         
         .tooltip-header {{
@@ -1901,7 +2166,7 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
 <body>
     <div class="container">
         <div class="header">
-            <h1>🗺️ ID Allocation Map</h1>
+            <h1> ID Allocation Map</h1>
             <p>Visual analysis of item ID distribution and availability</p>
             {f'<p style="margin-top: 10px; font-size: 0.9em;">Source: {source_info["path"]}</p>' if source_info else ''}
         </div>
@@ -1954,38 +2219,74 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
         <div class="search-container">
             <div class="search-box">
                 <input type="text" id="search-input" class="search-input" placeholder="Search: Try 'n:sword' or 's:shop' or just '100'">
-                <button onclick="performSearch()" class="search-btn">🔍 Search</button>
+                <button onclick="performSearch()" class="search-btn"> Search</button>
                 <button onclick="clearSearch()" class="clear-btn">✕ Clear</button>
-                <span class="search-help-icon" id="search-help">❓</span>
+                <span class="search-help-icon" id="search-help">?</span>
             </div>
             <div id="search-help-popup" class="search-help-popup">
-                <div class="search-help-header">🔍 Search Guide</div>
+                <div class="search-help-header"> Search Guide</div>
                 <div class="search-help-content">
                     <div class="search-help-section">
-                        <strong>Prefix Search:</strong>
+                        <strong>🔍 Basic Search:</strong>
                         <div class="search-help-examples">
                             <code>id:100</code> - Search by exact ID<br>
                             <code>n:sword</code> or <code>name:sword</code> - Search in item names<br>
-                            <code>d:heal</code> or <code>desc:heal</code> - Search in descriptions<br>
+                            <code>d:heal</code> or <code>desc:heal</code> - Search in descriptions
+                        </div>
+                    </div>
+                    <div class="search-help-section">
+                        <strong>🏷️ Category & Shop Search:</strong>
+                        <div class="search-help-examples">
                             <code>c:sepith</code> or <code>cat:sepith</code> - Search in categories<br>
                             <code>s:shop</code> or <code>shop:shop</code> - Search in shop names<br>
-                            <code>char:agnès</code> - Search by character/costume
+                            <code>sold:yes</code> - Find items sold in any shop<br>
+                            <code>sold:no</code> - Find items NOT sold anywhere
                         </div>
                     </div>
                     <div class="search-help-section">
-                        <strong>Auto-detect:</strong>
+                        <strong>👤 Character & Costume:</strong>
+                        <div class="search-help-examples">
+                            <code>char:agnès</code> - Search by character name<br>
+                            <code>costume:chr</code> - Search in costume names<br>
+                            <code>attach:point</code> - Search in attach names<br>
+                            <code>dlc:rean</code> - Search in DLC names<br>
+                            <code>dlc:1</code> - Search by DLC ID
+                        </div>
+                    </div>
+                    <div class="search-help-section">
+                        <strong>💰 Price & Stats:</strong>
+                        <div class="search-help-examples">
+                            <code>price:>1000</code> - Items more expensive than 1000<br>
+                            <code>price:<500</code> - Items cheaper than 500<br>
+                            <code>price:0</code> - Free items<br>
+                            <code>stats:yes</code> - Items with stats (equipment)
+                        </div>
+                    </div>
+                    <div class="search-help-section">
+                        <strong>🎯 Range & Advanced:</strong>
+                        <div class="search-help-examples">
+                            <code>range:100-200</code> - IDs in range 100 to 200<br>
+                            <code>free</code> or <code>available</code> - Find free/available IDs<br>
+                            <code>used</code> or <code>occupied</code> - Find occupied IDs
+                        </div>
+                    </div>
+                    <div class="search-help-section">
+                        <strong>⚡ Auto-detect:</strong>
                         <div class="search-help-examples">
                             <code>100</code> - Numbers → ID search (auto)<br>
-                            <code>sword</code> - Text → search everywhere
+                            <code>sword</code> - Text → search everywhere<br>
+                            <code>100-200</code> - Range → range search (auto)
                         </div>
                     </div>
                     <div class="search-help-section">
-                        <strong>Examples:</strong>
+                        <strong>📝 Examples:</strong>
                         <div class="search-help-examples">
-                            <code>310</code> → Finds ID 310 (Earth Sepith)<br>
-                            <code>n:100</code> → Finds items with "100" in name<br>
-                            <code>d:healing</code> → Finds items that heal<br>
-                            <code>s:item shop</code> → Finds items sold in Item Shop
+                            <code>310</code> → ID 310<br>
+                            <code>char:van</code> → Van's items<br>
+                            <code>price:>5000</code> → Expensive items<br>
+                            <code>sold:yes</code> → Items in shops<br>
+                            <code>1000-1100</code> → IDs 1000-1100<br>
+                            <code>available</code> → Free IDs
                         </div>
                     </div>
                 </div>
@@ -2014,7 +2315,15 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                 if item_info:
                     # Escape quotes in strings for HTML attributes
                     def escape_attr(s):
-                        return str(s).replace('"', '&quot;').replace("'", '&#39;')
+                        return (str(s)
+                            .replace('&', '&amp;')
+                            .replace('<', '&lt;')
+                            .replace('>', '&gt;')
+                            .replace('"', '&quot;')
+                            .replace("'", '&#39;')
+                            .replace('\n', ' ')
+                            .replace('\r', '')
+                            .replace('\t', ' '))
                     
                     name = escape_attr(item_info.get('name', ''))
                     desc = escape_attr(item_info.get('description', ''))
@@ -2056,11 +2365,24 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                     costume_info = enhanced_data.get('costumes', {}).get(id_val)
                     if costume_info:
                         costume_name = escape_attr(costume_info.get('costume_name', ''))
+                        attach_name = escape_attr(costume_info.get('attach_name', ''))
                         char_id = costume_info.get('character_id', 0)
                         char_name = enhanced_data.get('character_names', {}).get(char_id, f'Character {char_id}')
-                        data_attrs += f' data-costume="{costume_name}"'
+                        if costume_name:
+                            data_attrs += f' data-costume="{costume_name}"'
+                        if attach_name:
+                            data_attrs += f' data-attach-name="{attach_name}"'
                         data_attrs += f' data-character="{escape_attr(char_name)}"'
                         data_attrs += f' data-character-id="{char_id}"'
+                    
+                    # Check for DLC info
+                    dlc_info = enhanced_data.get('dlc_items', {}).get(id_val)
+                    if dlc_info:
+                        dlc_id = dlc_info.get('dlc_id', '')
+                        dlc_name = escape_attr(dlc_info.get('dlc_name', ''))
+                        if dlc_id and dlc_name:
+                            data_attrs += f' data-dlc-id="{dlc_id}"'
+                            data_attrs += f' data-dlc-name="{dlc_name}"'
                     
                     # Check for shop info
                     shop_data = enhanced_data.get('shop_data')
@@ -2083,7 +2405,7 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
         # Free blocks section
         if analysis['free_blocks']:
             html_content += """        <div class="free-blocks">
-            <h2>📋 Top Free Blocks</h2>
+            <h2> Top Free Blocks</h2>
             <div class="block-list">
 """
             
@@ -2140,6 +2462,28 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
         const tooltip = document.getElementById('tooltip');
         const cells = document.querySelectorAll('.id-cell');
         
+        // Function to copy tooltip text to clipboard with formatting
+        function copyTooltipToClipboard() {
+            const tooltip = document.getElementById('tooltip');
+            if (!tooltip || tooltip.style.display === 'none') {
+                console.log('Tooltip not visible, skipping copy');
+                return;
+            }
+            
+            // Use innerText which preserves line breaks
+            let text = tooltip.innerText || tooltip.textContent || '';
+            
+            // Clean up extra whitespace but preserve structure
+            text = text.split('\\n').map(line => line.trim()).filter(line => line).join('\\n');
+            
+            // Copy to clipboard
+            navigator.clipboard.writeText(text).then(() => {
+                console.log('Tooltip copied to clipboard');
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+            });
+        }
+        
         // Smart tooltip positioning function
         function positionTooltip(e) {
             // Get tooltip dimensions
@@ -2195,25 +2539,26 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
             tooltip.style.top = top + 'px';
         }
         
-        cells.forEach(cell => {
-            cell.addEventListener('mouseenter', (e) => {
-                const id = cell.getAttribute('data-id');
-                const status = cell.getAttribute('data-status');
-                const name = cell.getAttribute('data-name');
-                const description = cell.getAttribute('data-description');
-                const category = cell.getAttribute('data-category');
-                const categoryName = cell.getAttribute('data-category-name');
-                const subcategory = cell.getAttribute('data-subcategory');
-                const subcategoryName = cell.getAttribute('data-subcategory-name');
-                const price = cell.getAttribute('data-price');
-                const stack = cell.getAttribute('data-stack');
-                const stats = cell.getAttribute('data-stats');
-                const costume = cell.getAttribute('data-costume');
-                const character = cell.getAttribute('data-character');
-                const characterId = cell.getAttribute('data-character-id');
-                const shops = cell.getAttribute('data-shops');
-                
-                // Build tooltip content
+        // Helper function to show tooltip for a cell
+        function showTooltipForCell(cell, mouseEvent) {
+            const id = cell.getAttribute('data-id');
+            const status = cell.getAttribute('data-status');
+            const name = cell.getAttribute('data-name');
+            const description = cell.getAttribute('data-description');
+            const category = cell.getAttribute('data-category');
+            const categoryName = cell.getAttribute('data-category-name');
+            const subcategory = cell.getAttribute('data-subcategory');
+            const subcategoryName = cell.getAttribute('data-subcategory-name');
+            const price = cell.getAttribute('data-price');
+            const stack = cell.getAttribute('data-stack');
+            const stats = cell.getAttribute('data-stats');
+            const costume = cell.getAttribute('data-costume');
+            const attachName = cell.getAttribute('data-attach-name');
+            const character = cell.getAttribute('data-character');
+            const characterId = cell.getAttribute('data-character-id');
+            const shops = cell.getAttribute('data-shops');
+            
+            // Build tooltip content
                 let content = '<div class="tooltip-header">ID ' + id;
                 if (status === 'Available') {
                     content += ' <span style="color: #ffc107;">(Available)</span>';
@@ -2222,14 +2567,14 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                 
                 if (name) {
                     content += '<div class="tooltip-section">';
-                    content += '<div class="tooltip-label">Name</div>';
+                    content += '<div class=\"tooltip-label\"><i class=\"fas fa-tag\"></i> Name</div>';
                     content += '<div class="tooltip-value">' + name + '</div>';
                     content += '</div>';
                 }
                 
                 if (description) {
                     content += '<div class="tooltip-section">';
-                    content += '<div class="tooltip-label">Description</div>';
+                    content += '<div class=\"tooltip-label\"><i class=\"fas fa-info-circle\"></i> Description</div>';
                     content += '<div class="tooltip-value" style="font-size: 0.85em;">' + description + '</div>';
                     content += '</div>';
                 }
@@ -2249,24 +2594,55 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                     content += '</div>';
                 }
                 
-                if (character) {
+                if (character || costume) {
                     content += '<div class="tooltip-section">';
-                    content += '<div class="tooltip-label">Character</div>';
-                    // Show Character with ID
-                    content += '<div class="tooltip-value">' + character;
-                    if (characterId) {
-                        content += ' (ID: ' + characterId + ')';
+                    content += '<div class=\"tooltip-label\"><i class=\"fas fa-user\"></i> Character / Costume</div>';
+                    content += '<div class="tooltip-value">';
+                    
+                    // Show character name with ID
+                    if (character) {
+                        // Special handling for character ID
+                        const charIdNum = parseInt(characterId);
+                        
+                        if (charIdNum === -1) {
+                            // Character ID = -1 → show "Any"
+                            content += 'Any';
+                            if (characterId) {
+                                content += ' (ID: ' + characterId + ')';
+                            }
+                        } else if (charIdNum === 65535) {
+                            // Character ID = 65535 → show only ID
+                            content += 'ID: ' + characterId;
+                        } else {
+                            // Normal character
+                            content += character;
+                            if (characterId) {
+                                content += ' (ID: ' + characterId + ')';
+                            }
+                        }
                     }
+                    
+                    // Show costume name on new line
                     if (costume) {
-                        content += ' - ' + costume;
+                        if (character) {
+                            content += '<br>';
+                        }
+                        content += 'MDL name: ' + costume;
                     }
+                    
+                    // Show attach name on new line
+                    if (attachName) {
+                        content += '<br>';
+                        content += 'Attach: ' + attachName;
+                    }
+                    
                     content += '</div>';
                     content += '</div>';
                 }
                 
                 if (price && price !== '0') {
                     content += '<div class="tooltip-section">';
-                    content += '<div class="tooltip-label">Price / Stack</div>';
+                    content += '<div class=\"tooltip-label\"><i class=\"fas fa-coins\"></i> Price / Stack</div>';
                     content += '<div class="tooltip-value">' + price + ' mira';
                     if (stack && stack !== '1') {
                         content += ' (Stack: ' + stack + ')';
@@ -2276,6 +2652,8 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                 }
                 
                 if (stats) {
+                    content += '<div class="tooltip-section">';
+                    content += '<div class="tooltip-label"><i class="fas fa-chart-bar"></i> Stats</div>';
                     content += '<div class="tooltip-stats">';
                     const statPairs = stats.split(',');
                     statPairs.forEach(statPair => {
@@ -2286,11 +2664,25 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                         content += '</div>';
                     });
                     content += '</div>';
+                    content += '</div>';  // Close tooltip-section for stats
+                }
+                
+                // DLC section
+                const dlcId = cell.getAttribute('data-dlc-id');
+                const dlcName = cell.getAttribute('data-dlc-name');
+                
+                if (dlcId && dlcName) {
+                    content += '<div class="tooltip-section">';
+                    content += '<div class="tooltip-label"><i class="fas fa-gift"></i> DLC</div>';
+                    content += '<div class="tooltip-value">';
+                    content += '<span class="tooltip-badge">' + dlcName + ' (ID: ' + dlcId + ')</span>';
+                    content += '</div>';
+                    content += '</div>';
                 }
                 
                 if (shops) {
                     content += '<div class="tooltip-section">';
-                    content += '<div class="tooltip-label">💰 Sold In</div>';
+                    content += '<div class=\"tooltip-label\"><i class=\"fas fa-store\"></i> Sold In</div>';
                     const shopList = shops.split(' | ');
                     shopList.forEach(shop => {
                         content += '<div class="tooltip-value" style="font-size: 0.85em; margin: 2px 0;">• ' + shop + '</div>';
@@ -2300,7 +2692,7 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                 
                 if (status === 'Available') {
                     content += '<div class="tooltip-section" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.2);">';
-                    content += '<div style="color: #4caf50; font-weight: bold;">✓ This ID is available for use</div>';
+                    content += '<div style="color: #4caf50; font-weight: bold;">[OK] This ID is available for use</div>';
                     content += '</div>';
                 }
                 
@@ -2308,17 +2700,96 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                 tooltip.style.display = 'block';
                 
                 // Position tooltip immediately (prevents initial flash at wrong position)
-                positionTooltip(e);
+                if (mouseEvent) {
+                    positionTooltip(mouseEvent);
+                }
+        }
+        
+        // Track which cell is currently pinned (if any)
+        let pinnedCell = null;
+        
+        cells.forEach(cell => {
+            cell.addEventListener('mouseenter', (e) => {
+                // If tooltip is pinned, don't change content or show tooltip
+                if (tooltip.classList.contains('pinned')) {
+                    return;
+                }
+                
+                showTooltipForCell(cell, e);
             });
             
             cell.addEventListener('mousemove', (e) => {
+                // Don't update position if tooltip is pinned
+                if (tooltip.classList.contains('pinned')) {
+                    return;
+                }
                 // Update position as mouse moves
                 positionTooltip(e);
             });
             
-            cell.addEventListener('mouseleave', () => {
-                tooltip.style.display = 'none';
+            // Click to toggle pin
+            cell.addEventListener('click', (e) => {
+                e.stopPropagation();  // Prevent document handler
+                
+                const wasPinnedOnThisCell = (pinnedCell === cell);
+                const wasSomethingPinned = tooltip.classList.contains('pinned');
+                
+                if (wasPinnedOnThisCell) {
+                    // Clicking same pinned cell - UNPIN (back to hover mode)
+                    tooltip.classList.remove('pinned');
+                    tooltip.style.border = '1px solid rgba(255,255,255,0.2)';
+                    pinnedCell = null;
+                    // Tooltip stays visible for hover
+                    
+                    // Copy after unpinning (tooltip is still visible)
+                    copyTooltipToClipboard();
+                } else {
+                    // Clicking different cell (or unpinned cell)
+                    
+                    // If something else was pinned, unpin it first
+                    if (wasSomethingPinned) {
+                        tooltip.classList.remove('pinned');
+                        tooltip.style.border = '1px solid rgba(255,255,255,0.2)';
+                        pinnedCell = null;
+                    }
+                    
+                    // Now PIN this cell
+                    showTooltipForCell(cell, e);
+                    tooltip.classList.add('pinned');
+                    tooltip.style.border = '2px solid #667eea';
+                    pinnedCell = cell;
+                    
+                    // Copy after showing tooltip
+                    copyTooltipToClipboard();
+                }
             });
+            
+            cell.addEventListener('mouseleave', () => {
+                // Only hide if not pinned
+                if (!tooltip.classList.contains('pinned')) {
+                    tooltip.style.display = 'none';
+                }
+            });
+        });
+        
+        // Click anywhere outside cells to unpin (except help)
+        document.addEventListener('click', (e) => {
+            const tooltip = document.getElementById('tooltip');
+            
+            // Don't unpin if clicking on help icon, help popup, or help content
+            if (e.target.closest('#search-help') || 
+                e.target.closest('#search-help-popup') || 
+                e.target.closest('.search-help-content')) {
+                return;
+            }
+            
+            // Unpin if clicking outside cells
+            if (tooltip.classList.contains('pinned')) {
+                tooltip.classList.remove('pinned');
+                tooltip.style.border = '1px solid rgba(255,255,255,0.2)';
+                tooltip.style.display = 'none';
+                pinnedCell = null;
+            }
         });
         
         // Search functionality
@@ -2337,12 +2808,67 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
                 return;
             }
             
-            // Parse search input for prefixes
+            // Parse search input
             let searchTerm = searchInput.toLowerCase();
-            let searchMode = 'all';  // all, id, name, desc, category, shop, character
+            let searchMode = 'all';
+            let priceComparator = null;
+            let priceValue = null;
+            let rangeStart = null;
+            let rangeEnd = null;
             
-            // Check for prefixes
-            if (searchTerm.startsWith('id:')) {
+            // Check for special keywords
+            if (searchTerm === 'free' || searchTerm === 'available') {
+                searchMode = 'free';
+                searchTerm = '';
+            } else if (searchTerm === 'used' || searchTerm === 'occupied') {
+                searchMode = 'used';
+                searchTerm = '';
+            }
+            // Range search
+            else if (searchTerm.match(/^\\d+-\\d+$/)) {
+                const match = searchTerm.match(/^(\\d+)-(\\d+)$/);
+                searchMode = 'range';
+                rangeStart = parseInt(match[1]);
+                rangeEnd = parseInt(match[2]);
+                searchTerm = '';
+            } else if (searchTerm.startsWith('range:')) {
+                const rangeStr = searchTerm.substring(6).trim();
+                const match = rangeStr.match(/^(\\d+)-(\\d+)$/);
+                if (match) {
+                    searchMode = 'range';
+                    rangeStart = parseInt(match[1]);
+                    rangeEnd = parseInt(match[2]);
+                    searchTerm = '';
+                }
+            }
+            // Price comparisons
+            else if (searchTerm.startsWith('price:')) {
+                searchMode = 'price';
+                const priceStr = searchTerm.substring(6).trim();
+                if (priceStr.startsWith('>')) {
+                    priceComparator = '>';
+                    priceValue = parseInt(priceStr.substring(1));
+                } else if (priceStr.startsWith('<')) {
+                    priceComparator = '<';
+                    priceValue = parseInt(priceStr.substring(1));
+                } else {
+                    priceComparator = '=';
+                    priceValue = parseInt(priceStr);
+                }
+                searchTerm = '';
+            }
+            // Stats search
+            else if (searchTerm === 'stats:yes' || searchTerm === 'stats') {
+                searchMode = 'stats';
+                searchTerm = '';
+            }
+            // Sold status
+            else if (searchTerm.startsWith('sold:')) {
+                searchMode = 'sold';
+                searchTerm = searchTerm.substring(5).trim();
+            }
+            // Standard prefixes
+            else if (searchTerm.startsWith('id:')) {
                 searchMode = 'id';
                 searchTerm = searchTerm.substring(3).trim();
             } else if (searchTerm.startsWith('n:') || searchTerm.startsWith('name:')) {
@@ -2357,17 +2883,26 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
             } else if (searchTerm.startsWith('s:') || searchTerm.startsWith('shop:')) {
                 searchMode = 'shop';
                 searchTerm = searchTerm.startsWith('s:') ? searchTerm.substring(2).trim() : searchTerm.substring(5).trim();
-            } else if (searchTerm.startsWith('char:')) {
+            } else if (searchTerm.startsWith('char:') || searchTerm.startsWith('character:')) {
                 searchMode = 'character';
-                searchTerm = searchTerm.substring(5).trim();
+                searchTerm = searchTerm.startsWith('char:') ? searchTerm.substring(5).trim() : searchTerm.substring(10).trim();
+            } else if (searchTerm.startsWith('costume:')) {
+                searchMode = 'costume';
+                searchTerm = searchTerm.substring(8).trim();
+            } else if (searchTerm.startsWith('attach:')) {
+                searchMode = 'attach';
+                searchTerm = searchTerm.substring(7).trim();
+            } else if (searchTerm.startsWith('dlc:')) {
+                searchMode = 'dlc';
+                searchTerm = searchTerm.substring(4).trim();
             } else {
-                // Auto-detect: if it's only digits, search by ID
+                // Auto-detect: if only digits, search by ID
                 if (/^\\d+$/.test(searchTerm)) {
                     searchMode = 'id';
                 }
             }
             
-            if (!searchTerm) {
+            if (!searchTerm && !['free', 'used', 'range', 'price', 'stats', 'sold'].includes(searchMode)) {
                 resultsDiv.innerHTML = '<span style="color: #ff9800;">Please enter a value after the prefix.</span>';
                 resultsDiv.classList.add('visible');
                 return;
@@ -2376,38 +2911,97 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
             const matches = [];
             
             cells.forEach(cell => {
-                const id = cell.getAttribute('data-id');
+                const id = parseInt(cell.getAttribute('data-id'));
+                const status = cell.getAttribute('data-status');
                 const name = (cell.getAttribute('data-name') || '').toLowerCase();
                 const description = (cell.getAttribute('data-description') || '').toLowerCase();
                 const categoryName = (cell.getAttribute('data-category-name') || '').toLowerCase();
                 const character = (cell.getAttribute('data-character') || '').toLowerCase();
                 const costume = (cell.getAttribute('data-costume') || '').toLowerCase();
+                const attachName = (cell.getAttribute('data-attach-name') || '').toLowerCase();
+                const dlcName = (cell.getAttribute('data-dlc-name') || '').toLowerCase();
+                const dlcId = cell.getAttribute('data-dlc-id') || '';
                 const shops = (cell.getAttribute('data-shops') || '').toLowerCase();
+                const price = parseInt(cell.getAttribute('data-price') || '0');
+                const stats = cell.getAttribute('data-stats') || '';
                 
                 let isMatch = false;
                 
-                // Check based on search mode
-                if (searchMode === 'id') {
-                    isMatch = id === searchTerm || id.includes(searchTerm);
-                } else if (searchMode === 'name') {
-                    isMatch = name.includes(searchTerm);
-                } else if (searchMode === 'desc') {
-                    isMatch = description.includes(searchTerm);
-                } else if (searchMode === 'category') {
-                    isMatch = categoryName.includes(searchTerm);
-                } else if (searchMode === 'shop') {
-                    isMatch = shops.includes(searchTerm);
-                } else if (searchMode === 'character') {
-                    isMatch = character.includes(searchTerm) || costume.includes(searchTerm);
-                } else {
-                    // 'all' mode - search everywhere
-                    isMatch = id.includes(searchTerm) || 
-                              name.includes(searchTerm) || 
-                              description.includes(searchTerm) || 
-                              categoryName.includes(searchTerm) ||
-                              character.includes(searchTerm) ||
-                              costume.includes(searchTerm) ||
-                              shops.includes(searchTerm);
+                switch(searchMode) {
+                    case 'id':
+                        isMatch = id.toString() === searchTerm || id.toString().includes(searchTerm);
+                        break;
+                    case 'name':
+                        isMatch = name.includes(searchTerm);
+                        break;
+                    case 'desc':
+                        isMatch = description.includes(searchTerm);
+                        break;
+                    case 'category':
+                        isMatch = categoryName.includes(searchTerm);
+                        break;
+                    case 'shop':
+                        isMatch = shops.includes(searchTerm);
+                        break;
+                    case 'character':
+                        isMatch = character.includes(searchTerm);
+                        break;
+                    case 'costume':
+                        isMatch = costume.includes(searchTerm);
+                        break;
+                    case 'attach':
+                        isMatch = attachName.includes(searchTerm);
+                        break;
+                    case 'dlc':
+                        // Search both DLC name and DLC ID
+                        isMatch = dlcName.includes(searchTerm) || dlcId === searchTerm;
+                        break;
+                    case 'costume':
+                        isMatch = costume.includes(searchTerm);
+                        break;
+                    case 'attach':
+                        isMatch = attachName.includes(searchTerm);
+                        break;
+                    case 'price':
+                        if (priceComparator === '>') {
+                            isMatch = price > priceValue;
+                        } else if (priceComparator === '<') {
+                            isMatch = price < priceValue;
+                        } else {
+                            isMatch = price === priceValue;
+                        }
+                        break;
+                    case 'stats':
+                        isMatch = stats !== '';
+                        break;
+                    case 'sold':
+                        const hasSoldIn = shops !== '';
+                        if (searchTerm === 'yes') {
+                            isMatch = hasSoldIn;
+                        } else if (searchTerm === 'no') {
+                            isMatch = !hasSoldIn && status === 'Occupied';
+                        }
+                        break;
+                    case 'range':
+                        isMatch = id >= rangeStart && id <= rangeEnd;
+                        break;
+                    case 'free':
+                        isMatch = status === 'Available';
+                        break;
+                    case 'used':
+                        isMatch = status === 'Occupied';
+                        break;
+                    default:
+                        // 'all' mode
+                        isMatch = id.toString().includes(searchTerm) || 
+                                  name.includes(searchTerm) || 
+                                  description.includes(searchTerm) || 
+                                  categoryName.includes(searchTerm) ||
+                                  character.includes(searchTerm) ||
+                                  costume.includes(searchTerm) ||
+                                  attachName.includes(searchTerm) ||
+                                  dlcName.includes(searchTerm) ||
+                                  shops.includes(searchTerm);
                 }
                 
                 if (isMatch) {
@@ -2423,42 +3017,32 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
             // Display results
             if (matches.length === 0) {
                 let modeText = searchMode === 'all' ? 'anywhere' : 'in ' + searchMode;
-                resultsDiv.innerHTML = '<span style="color: #999;">No matches found for "' + searchTerm + '" ' + modeText + '</span>';
+                resultsDiv.innerHTML = '<span style="color: #999;">No matches found' + (searchTerm ? ' for "' + searchTerm + '" ' : ' ') + modeText + '</span>';
             } else {
                 let html = '<strong style="color: #667eea;">Found ' + matches.length + ' match(es)</strong>';
                 if (searchMode !== 'all') {
-                    html += ' <span style="color: #999;">(searching in: ' + searchMode + ')</span>';
+                    html += ' <span style="color: #999;">(searching: ' + searchMode + ')</span>';
                 }
                 html += ': ';
-                
-                if (matches.length <= 10) {
-                    // Show all matches if 10 or fewer
-                    const matchList = matches.map(m => 
-                        '<span style="color: #4caf50; font-weight: bold;">ID ' + m.id + '</span> (' + m.name + ')'
-                    ).join(', ');
-                    html += matchList;
-                } else {
-                    // Show first 10 and count
-                    const matchList = matches.slice(0, 10).map(m => 
-                        '<span style="color: #4caf50; font-weight: bold;">ID ' + m.id + '</span> (' + m.name + ')'
-                    ).join(', ');
-                    html += matchList + ', <span style="color: #999;">... and ' + (matches.length - 10) + ' more</span>';
+                matches.slice(0, 10).forEach((match, idx) => {
+                    if (idx > 0) html += ', ';
+                    html += '<a href="#" onclick="scrollToId(' + match.id + '); return false;" style="color: #667eea; text-decoration: none;">' + 
+                            match.id + '</a>';
+                });
+                if (matches.length > 10) {
+                    html += ' <span style="color: #999;">... and ' + (matches.length - 10) + ' more</span>';
                 }
-                
                 resultsDiv.innerHTML = html;
-                
-                // Scroll to first match
-                if (matches.length > 0) {
-                    const firstMatch = document.querySelector('.id-cell.highlighted');
-                    if (firstMatch) {
-                        firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                }
             }
             
             resultsDiv.classList.add('visible');
+            
+            // Scroll to first match
+            if (matches.length > 0) {
+                scrollToId(matches[0].id);
+            }
         }
-        
+
         function clearSearch() {
             const cells = document.querySelectorAll('.id-cell.highlighted');
             cells.forEach(cell => cell.classList.remove('highlighted'));
@@ -2475,23 +3059,64 @@ def generate_html_report(analysis, output_file='id_allocation_map.html', source_
             }
         });
         
-        // Help popup toggle
+        // Help popup with dynamic positioning (follows mouse)
         const helpIcon = document.getElementById('search-help');
         const helpPopup = document.getElementById('search-help-popup');
         
+        function positionSearchHelp(e) {
+            const popupRect = helpPopup.getBoundingClientRect();
+            const popupWidth = popupRect.width || 400;
+            const popupHeight = popupRect.height || 300;
+            
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            let left = e.pageX + TOOLTIP_OFFSET;
+            let top = e.pageY + TOOLTIP_OFFSET;
+            
+            const spaceOnRight = viewportWidth - e.clientX;
+            const neededSpaceRight = popupWidth + TOOLTIP_OFFSET + TOOLTIP_SAFETY_MARGIN;
+            
+            if (spaceOnRight < neededSpaceRight || (viewportWidth - e.clientX) < TOOLTIP_EDGE_MARGIN) {
+                left = e.pageX - popupWidth - TOOLTIP_OFFSET;
+            }
+            
+            const spaceBelow = viewportHeight - e.clientY;
+            const neededSpaceBelow = popupHeight + TOOLTIP_OFFSET + TOOLTIP_SAFETY_MARGIN;
+            
+            if (spaceBelow < neededSpaceBelow || (viewportHeight - e.clientY) < TOOLTIP_EDGE_MARGIN) {
+                top = e.pageY - popupHeight - TOOLTIP_OFFSET;
+            }
+            
+            if (left < TOOLTIP_MIN_MARGIN) left = TOOLTIP_MIN_MARGIN;
+            if (top < TOOLTIP_MIN_MARGIN) top = TOOLTIP_MIN_MARGIN;
+            
+            const maxLeft = viewportWidth - popupWidth - TOOLTIP_MIN_MARGIN;
+            if (left > maxLeft) left = maxLeft;
+            
+            helpPopup.style.left = left + 'px';
+            helpPopup.style.top = top + 'px';
+        }
+        
+        helpIcon.addEventListener('mouseenter', function(e) {
+            helpPopup.style.display = 'block';
+            positionSearchHelp(e);
+        });
+        
+        helpIcon.addEventListener('mousemove', function(e) {
+            positionSearchHelp(e);
+        });
+        
+        helpIcon.addEventListener('mouseleave', function() {
+            helpPopup.style.display = 'none';
+        });
+        
+        // Prevent clicks on help icon from unpinning tooltip
         helpIcon.addEventListener('click', function(e) {
             e.stopPropagation();
-            helpPopup.classList.toggle('visible');
         });
         
-        // Close help popup when clicking outside
-        document.addEventListener('click', function(e) {
-            if (!helpPopup.contains(e.target) && e.target !== helpIcon) {
-                helpPopup.classList.remove('visible');
-            }
-        });
-        
-        // Prevent closing when clicking inside popup
+        // Prevent clicks on help popup from unpinning tooltip
         helpPopup.addEventListener('click', function(e) {
             e.stopPropagation();
         });
@@ -2581,7 +3206,7 @@ def main():
             sys.exit(1)
     
     # Load data
-    print(f"{Fore.CYAN}Loading item data...{Style.RESET_ALL}\n")
+    print(f"{Fore.CYAN}Loading data from source...{Style.RESET_ALL}\n")
     items, source_info = load_items(force_source, no_interactive, keep_extracted)
     
     if items is None:
@@ -2592,67 +3217,126 @@ def main():
         print(f"\n{Fore.YELLOW}No items found in source.{Style.RESET_ALL}")
         sys.exit(0)
     
-    print(f"\n{Fore.GREEN}Loaded {len(items)} items{Style.RESET_ALL}\n")
+    # Get source file name for display
+    source_type = source_info.get('type', 'unknown')
+    if source_type == 'json':
+        item_source = 't_item.json'
+    elif source_type in ('tbl', 'original'):
+        item_source = source_info.get('path', '').split(',')[0].strip()
+    else:
+        item_source = 't_item.tbl'
+    
+    print(f"{Fore.CYAN}Loading items from {item_source}...{Style.RESET_ALL}")
+    print(f"  {Fore.GREEN}[OK]{Style.RESET_ALL} Loaded {len(items)} items from {item_source}\n")
     
     # Load item help data (category names, etc.) if available
     itemhelp_data = None
     if source_info.get('has_itemhelp'):
-        print(f"{Fore.CYAN}Loading item metadata (categories)...{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Loading categories from t_itemhelp...{Style.RESET_ALL}")
         itemhelp_data = load_itemhelp_data(source_info['type'], source_info.get('itemhelp_path'))
         if itemhelp_data and itemhelp_data.get('categories'):
             categories_loaded = len(itemhelp_data['categories'])
-            print(f"  {Fore.GREEN}✓{Style.RESET_ALL} Category names: {categories_loaded} categories from t_itemhelp")
+            print(f"  {Fore.GREEN}[OK]{Style.RESET_ALL} Loaded {categories_loaded} categories from t_itemhelp\n")
     
     # Load character name data if available
     name_data = None
     if source_info.get('has_name'):
-        print(f"{Fore.CYAN}Loading character names...{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Loading character names from t_name...{Style.RESET_ALL}")
         name_data = load_name_data(source_info['type'], source_info.get('name_path'))
         if name_data and name_data.get('character_names'):
             characters_loaded = len(name_data['character_names'])
-            print(f"  {Fore.GREEN}✓{Style.RESET_ALL} Character names: {characters_loaded} characters from t_name")
+            print(f"  {Fore.GREEN}[OK]{Style.RESET_ALL} Loaded {characters_loaded} character names from t_name\n")
+    
+    # Load costume data if available
+    costume_data = None
+    if source_info.get('has_costume'):
+        print(f"{Fore.CYAN}Loading costume data from t_costume...{Style.RESET_ALL}")
+        costume_data = load_costume_data(source_info['type'], source_info.get('costume_path'))
+        if costume_data and costume_data.get('costumes'):
+            costumes_loaded = len(costume_data['costumes'])
+            print(f"  {Fore.GREEN}[OK]{Style.RESET_ALL} Loaded {costumes_loaded} costumes from t_costume\n")
+    
+    # Load DLC data if available
+    dlc_data = None
+    if source_info.get('has_dlc'):
+        print(f"{Fore.CYAN}Loading DLC data from t_dlc...{Style.RESET_ALL}")
+        dlc_data = load_dlc_data(source_info['type'], source_info.get('dlc_path'))
+        if dlc_data and dlc_data.get('dlc_items'):
+            dlc_loaded = len(dlc_data['dlc_items'])
+            print(f"  {Fore.GREEN}[OK]{Style.RESET_ALL} Loaded {dlc_loaded} DLC items from t_dlc\n")
     
     # Extract enhanced data from loaded items (works with any source: JSON, TBL, P3A)
-    print(f"{Fore.CYAN}Extracting enhanced data from items...{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}Processing data...{Style.RESET_ALL}")
     enhanced_data = extract_enhanced_data_from_items(items, itemhelp_data, name_data)
     
-    # Load costume data from available sources
-    costume_data = load_costume_data('.')
-    enhanced_data['costumes'] = costume_data
+    # Merge costume data into enhanced_data
+    if costume_data and costume_data.get('costumes'):
+        if 'costumes' not in enhanced_data:
+            enhanced_data['costumes'] = {}
+        for item_id, costume in costume_data['costumes'].items():
+            enhanced_data['costumes'][item_id] = {
+                'character_id': costume.get('character_id', 0),
+                'costume_name': costume.get('name', ''),
+                'attach_name': costume.get('attach_name', '')
+            }
     
-    # Load shop data if available
-    shop_data = None
-    if source_info.get('has_shop'):
-        print(f"{Fore.CYAN}Loading shop data...{Style.RESET_ALL}")
-        shop_data = load_shop_data(source_info['type'], source_info.get('shop_path'))
-        if shop_data and shop_data.get('shops'):
-            enhanced_data['shop_data'] = shop_data
+    # Merge DLC data into enhanced_data
+    if dlc_data and dlc_data.get('dlc_items'):
+        if 'dlc_items' not in enhanced_data:
+            enhanced_data['dlc_items'] = {}
+        for item_id, dlc_info in dlc_data['dlc_items'].items():
+            enhanced_data['dlc_items'][item_id] = {
+                'dlc_id': dlc_info.get('dlc_id'),
+                'dlc_name': dlc_info.get('dlc_name')
+            }
     
-    # Cleanup temporary files if they were deferred
-    if 'temp_files' in source_info:
-        for temp_file in source_info['temp_files']:
-            if os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                    print(f"{Fore.CYAN}Cleaned up temporary file: {temp_file}{Style.RESET_ALL}")
-                except Exception as e:
-                    print(f"{Fore.YELLOW}Warning: Could not remove {temp_file}: {e}{Style.RESET_ALL}")
-    
-    # Report what was loaded
+    # Print processing summary
     if enhanced_data:
         items_count = len(enhanced_data.get('items', {}))
         costumes_count = len(enhanced_data.get('costumes', {}))
         categories_count = len(enhanced_data.get('categories', {}))
         shops_count = len(enhanced_data.get('shop_data', {}).get('shops', {}))
-        items_in_shops_count = len(enhanced_data.get('shop_data', {}).get('item_shops', {}))
         
-        print(f"  {Fore.GREEN}✓{Style.RESET_ALL} Item details: {items_count} items")
+        summary_parts = []
+        summary_parts.append(f"{items_count} items")
         if costumes_count > 0:
-            print(f"  {Fore.GREEN}✓{Style.RESET_ALL} Costume info: {costumes_count} costumes")
+            summary_parts.append(f"{costumes_count} costumes")
+        if categories_count > 0:
+            summary_parts.append(f"{categories_count} categories")
         if shops_count > 0:
-            print(f"  {Fore.GREEN}✓{Style.RESET_ALL} Shop data: {shops_count} shops ({items_in_shops_count} items sold)")
-        print(f"  {Fore.GREEN}✓{Style.RESET_ALL} Categories: {categories_count} categories")
+            summary_parts.append(f"{shops_count} shops")
+        
+        print(f"  {Fore.GREEN}[OK]{Style.RESET_ALL} Processed: {', '.join(summary_parts)}")
         print()
+    
+    # Load shop data if available
+    shop_data = None
+    if source_info.get('has_shop'):
+        print(f"{Fore.CYAN}Loading shop data from t_shop...{Style.RESET_ALL}")
+        shop_data = load_shop_data(source_info['type'], source_info.get('shop_path'))
+        if shop_data and shop_data.get('shops'):
+            enhanced_data['shop_data'] = shop_data
+            shops_count = len(shop_data.get('shops', {}))
+            items_in_shops_count = len(shop_data.get('item_shops', {}))
+            print(f"  {Fore.GREEN}[OK]{Style.RESET_ALL} Loaded {shops_count} shops ({items_in_shops_count} items sold) from t_shop\n")
+    
+    # Cleanup temporary files if they were deferred (moved after statistics)
+    if 'temp_files' in source_info:
+        cleaned_files = []
+        for temp_file in source_info['temp_files']:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                    cleaned_files.append(temp_file)
+                except Exception as e:
+                    print(f"{Fore.YELLOW}Warning: Could not remove {temp_file}: {e}{Style.RESET_ALL}")
+        
+        # Print cleanup summary at the end
+        if cleaned_files:
+            print(f"{Fore.CYAN}Cleaned up temporary files:{Style.RESET_ALL}")
+            for temp_file in cleaned_files:
+                print(f"  - {temp_file}")
+            print()
     
     # Analyze IDs
     print(f"{Fore.CYAN}Analyzing ID allocation...{Style.RESET_ALL}\n")
