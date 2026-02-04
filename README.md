@@ -1,6 +1,6 @@
 # KuroDLC Modding Toolkit
 
-A comprehensive Python toolkit for creating and managing DLC mods for games using the KuroDLC format. This toolkit provides utilities for item discovery, ID management, conflict resolution, shop assignment automation, and **schema conversion from KuroTools**.
+A comprehensive Python toolkit for creating and managing DLC mods for games using the KuroDLC format. This toolkit provides utilities for item discovery, ID management, conflict resolution, shop assignment automation, **schema conversion from KuroTools**, **ID allocation visualization**, and **3D model viewing**.
 
 [![Python Version](https://img.shields.io/badge/python-3.7%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
@@ -50,15 +50,27 @@ When creating DLC mods for Kuro engine games, modders face multiple challenges:
 - Copy-paste errors are common
 - No easy way to bulk-update shop assignments
 
-**3. Schema Incompatibility (New Files Problem)** ⭐ NEW
+**3. Schema Incompatibility (New Files Problem)**
 - New TBL files from game updates don't have schema definitions
 - KuroTools project supports new files but uses different format
 - Manual schema conversion is complex and error-prone
 - Missing schemas prevent reading new TBL files
 
+**4. ID Range Planning (Visibility Problem)** ⭐ NEW
+- No visual overview of which IDs are occupied vs. free
+- Hard to find safe ID ranges for large mods
+- Team coordination requires manual tracking
+- Fragmentation analysis is impossible manually
+
+**5. Model Preview (3D Visualization Problem)** ⭐ NEW
+- No quick way to preview .mdl 3D models
+- External tools required for model inspection
+- Difficult to verify model integrity
+- Time-consuming workflow for model checking
+
 ### The Solution
 
-This toolkit automates all three problems:
+This toolkit automates all five problems:
 
 **Primary: Automatic ID Conflict Resolution**
 ```bash
@@ -80,7 +92,7 @@ python shops_create.py template_my_mod.json
 - Customizable templates for different shop structures
 - 50 items × 10 shops = 500 entries generated instantly
 
-**Tertiary: Schema Conversion** ⭐ NEW
+**Tertiary: Schema Conversion**
 ```bash
 # Convert KuroTools schemas to kurodlc format
 python convert_kurotools_schemas.py
@@ -89,6 +101,27 @@ python convert_kurotools_schemas.py
 - Adds support for new TBL files (Kuro 1, 2, Kai, Ys X, Sky)
 - Expands schema coverage from 39 to 344+ structures
 - Works with local schemas folder (no internet needed)
+
+**Quaternary: ID Allocation Visualization** ⭐ NEW
+```bash
+# Generate visual ID allocation map
+python visualize_id_allocation.py
+```
+- Interactive HTML report with color-coded ID map
+- Console visualization with statistics
+- Gap analysis and fragmentation metrics
+- Identifies safe ID ranges for modding
+
+**Quinary: 3D Model Viewing** ⭐ NEW
+```bash
+# Quick preview of .mdl files
+python viewer_mdl/viewer_mdl.py character.mdl
+python viewer_mdl/viewer_mdl_window.py character.mdl
+```
+- Standalone 3D model viewer
+- Native window or HTML output
+- Automatic normal computation
+- No temporary files left behind
 
 ---
 
@@ -111,7 +144,7 @@ Quickly assign items to multiple shops without manual editing - **batch generate
 - **🎨 Custom Templates**: Define your own shop item structure
 - **🤖 CI/CD Support**: Non-interactive mode for automated workflows
 
-### Tertiary Purpose: Schema Conversion ⭐ NEW
+### Tertiary Purpose: Schema Conversion
 Automatically convert KuroTools schemas to expand support for new TBL files!
 
 - **🔄 Automatic Conversion**: Convert 280+ KuroTools schemas in seconds
@@ -119,6 +152,25 @@ Automatically convert KuroTools schemas to expand support for new TBL files!
 - **🎮 Multi-Game Support**: Kuro 1, Kuro 2, Kai, Ys X, Sky 1st
 - **🔍 Smart Detection**: Automatically prevents duplicates
 - **📊 Detailed Reports**: Full conversion logs and statistics
+
+### Quaternary Purpose: ID Allocation Visualization ⭐ NEW
+Visualize ID allocation patterns and find safe ranges for your mods!
+
+- **📊 Interactive HTML Maps**: Color-coded visualization of ID usage
+- **🖥️ Console Visualization**: Terminal-based ID allocation display
+- **📈 Statistics Dashboard**: Occupancy rates, fragmentation metrics
+- **🔍 Gap Analysis**: Identify free ID blocks and optimal ranges
+- **🎯 Range Planning**: Find safe ID ranges for large mod projects
+- **👥 Team Coordination**: Share visual reports for coordinated modding
+
+### Quinary Purpose: 3D Model Viewing ⭐ NEW
+Quick preview and inspection of .mdl 3D model files!
+
+- **🎨 Multiple Viewers**: Choose between HTML, window, or optimized versions
+- **🖼️ Standalone Operation**: No external dependencies for basic viewing
+- **🔄 Auto Normal Computation**: Smooth normals calculated automatically
+- **🧹 Clean Operation**: No temporary files left behind (window version)
+- **⚙️ Flexible Options**: Original or computed normals support
 
 ### Additional Tools
 - **🔍 Item Discovery**: Search and browse game items from JSON, TBL, and P3A sources
@@ -156,14 +208,22 @@ Because this toolkit uses GPL-3.0 licensed libraries, the following applies:
 
 See the [License](#-license) section for full details.
 
-### Optional Dependencies (for P3A/TBL Support)
+### Optional Dependencies
 
-If you want to work with `.p3a` archives or `.tbl` files, install:
+**For P3A/TBL Support:**
 ```bash
 pip install lz4 zstandard xxhash --break-system-packages
 ```
 
-**Note:** If you only work with JSON files (`.kurodlc.json`, `t_item.json`, etc.), these optional dependencies are not needed. All core functionality works with JSON only.
+**For 3D Model Viewing (viewer_mdl):**
+```bash
+pip install numpy blowfish zstandard --break-system-packages
+
+# For native window viewer (viewer_mdl_window.py):
+pip install pywebview --break-system-packages
+```
+
+**Note:** If you only work with JSON files (`.kurodlc.json`, `t_item.json`, etc.), the optional dependencies are not needed. All core functionality works with JSON only.
 
 ---
 
@@ -177,7 +237,7 @@ pip install lz4 zstandard xxhash --break-system-packages
 ### Option 2: Clone Repository
 ```bash
 git clone https://github.com/falco81/KuroDLCTools.git
-cd kurodlc-toolkit
+cd KuroDLCTools
 ```
 
 ### Install Dependencies
@@ -193,9 +253,12 @@ pip install colorama --break-system-packages
 
 # Optional: for P3A/TBL support
 pip install lz4 zstandard xxhash --break-system-packages
+
+# Optional: for 3D model viewing
+pip install numpy blowfish zstandard pywebview --break-system-packages
 ```
 
-### Setup for Schema Conversion ⭐ NEW
+### Setup for Schema Conversion
 
 To use the schema converter, you need KuroTools schemas:
 
@@ -226,895 +289,432 @@ KuroDLCTools/
 ### 1. Fix ID Conflicts in Your DLC (Primary Use Case)
 ```bash
 # Detect conflicts
-python resolve_id_conflicts_in_kurodlc.py repair
+python resolve_id_conflicts_in_kurodlc.py checkbydlc
 
-# Fix conflicts automatically
+# Repair with smart algorithm (automatic)
 python resolve_id_conflicts_in_kurodlc.py repair --apply
+
+# Export mapping for manual editing
+python resolve_id_conflicts_in_kurodlc.py repair --export --export-name=my_mod
+
+# Import edited mapping
+python resolve_id_conflicts_in_kurodlc.py repair --import --mapping-file=id_mapping_my_mod.json
 ```
 
 ### 2. Generate Shop Assignments (Secondary Use Case)
 ```bash
-# Step 1: Extract IDs and generate template
+# Generate template from your DLC
 python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template
 
-# Step 2: Create shop assignments
-python shops_create.py template_my_mod.kurodlc.json
+# Customize template_my_mod.json if needed
 
-# Step 3: Copy ShopItem section from output_template_my_mod.kurodlc.json into your my_mod.kurodlc.json
+# Generate shop assignments
+python shops_create.py template_my_mod.json
 ```
 
 ### 3. Visualize ID Allocation ⭐ NEW
 ```bash
-# Analyze current ID allocation and find free ranges
+# Generate both console and HTML visualization
 python visualize_id_allocation.py
 
-# Opens interactive HTML report showing:
-# - Color-coded ID map (occupied vs free)
-# - Statistics and fragmentation metrics
-# - List of all available ID ranges
+# Console only
+python visualize_id_allocation.py --format=console
+
+# HTML only with custom name
+python visualize_id_allocation.py --format=html --output=my_report.html
+
+# Custom block size for visualization
+python visualize_id_allocation.py --block-size=100
 ```
 
-### 4. Browse Characters ⭐ NEW
+### 4. View 3D Models ⭐ NEW
 ```bash
-# Search for character by name
-python find_all_names.py van
+# HTML output (creates .html file)
+python viewer_mdl/viewer_mdl.py character.mdl
 
-# Search by ID
-python find_all_names.py 100
+# Native window (no files created)
+python viewer_mdl/viewer_mdl_window.py character.mdl
 
-# Show full names and models
-python find_all_names.py van --show-full --show-model
+# Optimized version
+python viewer_mdl/viewer_mdl_optimized.py character.mdl
+
+# Use original normals instead of computed
+python viewer_mdl/viewer_mdl.py character.mdl --use-original-normals
 ```
 
 ### 5. Convert KuroTools Schemas
 ```bash
-# Expand schema support for new TBL files
+# Convert all schemas
 python convert_kurotools_schemas.py
 
-# Result: kurodlc_schema_updated.json with 344+ schemas
-# Replace your kurodlc_schema.json with this file
+# Output: kurodlc_schema_updated.json and conversion_report.txt
 ```
 
 ### 6. Browse Game Items
 ```bash
-# Search for items (auto-detects t_item.json, t_item.tbl, or P3A archives)
-python find_all_items.py sepith
+# Find all items
+python find_all_items.py
 
-# Browse all shops (auto-detects sources)
-python find_all_shops.py
+# Find specific category
+python find_unique_item_id_for_t_item_category.py
 
-# Force specific source if needed
-python find_all_items.py sepith --source=json
+# Find costumes
+python find_unique_item_id_for_t_costumes.py
 ```
 
 ---
 
 ## 📚 Scripts Overview
 
-### Core Scripts (Latest Versions)
+### Core Scripts
 
-| Script | Version | Purpose | Main Features |
-|--------|---------|---------|---------------|
-| **`resolve_id_conflicts_in_kurodlc.py`** | v2.7.1 | ID conflict resolution | Smart algorithm (v2.7), automatic repair, 1-5000 range limit |
-| **`shops_find_unique_item_id_from_kurodlc.py`** | v2.1 | Template generation | Extract IDs, generate templates, CI/CD support |
-| **`shops_create.py`** | v2.0 | Shop assignment generation | Bulk assignments, custom templates, variable substitution |
-| **`convert_kurotools_schemas.py`** ⭐ NEW | v1.0 | Schema conversion | KuroTools → kurodlc format, 280+ schemas, multi-game support |
+#### 1. `resolve_id_conflicts_in_kurodlc.py` (v2.7.1)
+**Purpose:** Detect and resolve ID conflicts between DLC mods and game data
 
-### Analysis & Visualization Scripts ⭐ NEW
+**Features:**
+- Smart ID assignment algorithm (v2.7)
+- Searches only in range 1-5000
+- Starts from middle (2500) for better distribution
+- Automatic backups and detailed logging
+- Export/import workflow for manual control
 
-| Script | Version | Purpose | Main Features |
-|--------|---------|---------|---------------|
-| **`visualize_id_allocation.py`** ⭐ NEW | v1.0 | ID allocation visualization | Interactive HTML map, gap analysis, fragmentation metrics, free block identification |
-| **`find_all_names.py`** ⭐ NEW | v1.0 | Character name search | Multi-source support, smart search (ID/name/model), detailed filtering |
-
-### Utility Scripts
-
-| Script | Version | Purpose |
-|--------|---------|---------|
-| **`find_all_items.py`** | v2.0 | Search and browse game items (multi-source support) |
-| **`find_all_shops.py`** | v2.0 | List all shops from game data (multi-source support) |
-| **`find_unique_item_id_for_t_costumes.py`** | v2.0 | Extract costume IDs (multi-source support) |
-| **`find_unique_item_id_for_t_item_category.py`** | v2.0 | Extract category IDs (multi-source support) |
-| **`find_unique_item_id_from_kurodlc.py`** | v1.0 | Check DLC IDs against game data |
-
-### Installation Helper
-
-| Script | Purpose |
-|--------|---------|
-| **`install_python_modules.bat`** | Install required Python packages (Windows) |
-
----
-
-## 📖 Detailed Documentation
-
-### resolve_id_conflicts_in_kurodlc.py
-
-**Purpose:** Detect and automatically fix ID conflicts between your DLC and game data
-
-#### Quick Reference
-
+**Usage:**
 ```bash
-# Check for conflicts (read-only)
 python resolve_id_conflicts_in_kurodlc.py checkbydlc
-
-# Repair mode (shows what would change)
-python resolve_id_conflicts_in_kurodlc.py repair
-
-# Repair and apply changes automatically
 python resolve_id_conflicts_in_kurodlc.py repair --apply
-
-# Export ID mapping for manual editing
-python resolve_id_conflicts_in_kurodlc.py repair --export --export-name=MyMod
-
-# Import and apply manually edited mappings
-python resolve_id_conflicts_in_kurodlc.py repair --import --mapping-file=id_mapping_MyMod.json
+python resolve_id_conflicts_in_kurodlc.py repair --export --export-name=my_mod
+python resolve_id_conflicts_in_kurodlc.py repair --import --mapping-file=id_mapping_my_mod.json
 ```
 
-#### Parameters
+#### 2. `shops_find_unique_item_id_from_kurodlc.py` (v2.1)
+**Purpose:** Extract item IDs from DLC and generate shop assignment templates
 
-- **`checkbydlc`** - Check all .kurodlc.json files for conflicts
-- **`repair`** - Generate repair plan for conflicts
-- **`--apply`** - Apply changes immediately (creates backups)
-- **`--export`** - Export ID mapping to JSON file
-- **`--export-name=NAME`** - Custom name for export file
-- **`--import`** - Import and apply ID mapping
-- **`--mapping-file=FILE`** - Specify mapping file to import
-- **`--source=TYPE`** - Force source type (json/tbl/p3a)
-- **`--no-interactive`** - Auto-select options (for CI/CD)
+**Features:**
+- Automatic ID extraction from multiple sections
+- Template generation for shops_create.py
+- Auto-detect or manual shop ID specification
+- CI/CD support with --no-interactive flag
 
-#### How It Works
-
-1. **Detection**: Scans all .kurodlc.json files and compares against game database
-2. **Smart Assignment (v2.7)**: 
-   - Starts from ID 2500 for better distribution
-   - Tries continuous blocks first
-   - Falls back to scattered search
-   - Enforces 1-5000 range limit
-3. **Safety**: Creates backups before any changes
-4. **Logging**: Detailed logs of all operations
-
----
-
-### shops_find_unique_item_id_from_kurodlc.py
-
-**Purpose:** Extract item IDs from DLC and generate templates for shop assignments
-
-#### Quick Reference
-
+**Usage:**
 ```bash
-# Generate template with auto-detected shop IDs
+python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json
 python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template
-
-# Generate with custom shop IDs
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --shop-ids 5,6,10
-
-# Custom output name
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --output=custom_template.json
-
-# CI/CD mode (non-interactive)
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --no-interactive --default-shop-ids 5,10,21
+python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template --shop-ids=5,6,10
 ```
 
-#### Parameters
+#### 3. `shops_create.py` (v2.0)
+**Purpose:** Generate shop assignments from template configuration
 
-- **`--generate-template`** - Generate template for shops_create.py
-- **`--shop-ids ID,ID,...`** - Comma-separated shop IDs
-- **`--output=FILE`** - Custom output filename
-- **`--no-interactive`** - Non-interactive mode (for CI/CD)
-- **`--default-shop-ids ID,ID,...`** - Default shop IDs for non-interactive mode
+**Features:**
+- Variable substitution (${shop_id}, ${item_id}, ${index}, ${count})
+- Custom output sections
+- Custom template support
+- Backward compatible with v1.0
 
----
-
-### shops_create.py
-
-**Purpose:** Generate shop assignments from templates with variable substitution
-
-#### Quick Reference
-
+**Usage:**
 ```bash
-# Generate from template
 python shops_create.py template_my_mod.json
-
-# See example configs
-type example_config_basic.json
-type example_config_advanced.json
-type example_config_custom_template.json
+python shops_create.py config.json output.json
 ```
 
-#### Template Variables
+#### 4. `visualize_id_allocation.py` ⭐ NEW
+**Purpose:** Visualize ID allocation patterns and statistics
 
-- **`${shop_id}`** - Current shop ID
-- **`${item_id}`** - Current item ID
-- **`${index}`** - Item index (0-based)
-- **`${count}`** - Total items per shop
+**Features:**
+- Interactive HTML report with color-coded ID map
+- Console visualization with statistics
+- Gap analysis and free block identification
+- Fragmentation metrics
+- Customizable block sizes
+- Multiple source support (JSON, TBL, P3A)
 
-#### Configuration
-
-Templates support:
-- Custom output sections (default: "ShopItem")
-- Custom entry templates
-- Multiple shop IDs
-- Multiple item IDs
-- Variable substitution
-
----
-
-### convert_kurotools_schemas.py ⭐ NEW
-
-**Purpose:** Convert KuroTools schemas to kurodlc_schema.json format
-
-#### Quick Reference
-
+**Usage:**
 ```bash
-# Convert schemas (run in directory with schemas/ folder)
-python convert_kurotools_schemas.py
-
-# Output files:
-# - kurodlc_schema_updated.json (merged schemas)
-# - conversion_report.txt (detailed report)
-```
-
-#### What It Does
-
-1. **Loads** existing kurodlc_schema.json (if exists)
-2. **Scans** schemas/headers/ for KuroTools schemas
-3. **Converts** each schema to kurodlc format:
-   - Maps data types (ubyte → B, uint → I, toffset → Q, etc.)
-   - Calculates schema sizes
-   - Flattens nested structures
-   - Detects primary keys
-4. **Merges** with existing schemas (no duplicates)
-5. **Outputs**:
-   - `kurodlc_schema_updated.json` - Updated schema file
-   - `conversion_report.txt` - Conversion statistics
-
-#### Conversion Statistics
-
-- **Original schemas**: 39
-- **KuroTools schemas**: 282 files
-- **Converted variants**: 343
-- **New schemas added**: 305
-- **Total schemas**: 344
-
-#### Supported Games
-
-- **Kuro no Kiseki 1** (Kuro1)
-- **Kuro no Kiseki 2** (Kuro2)
-- **Kai no Kiseki** (Kai)
-- **Ys X: Nordics** (Ys_X)
-- **Trails in the Sky 1st** (Sora1)
-
-#### Type Conversion
-
-| KuroTools | Struct | Size | Type |
-|-----------|--------|------|------|
-| ubyte | B | 1 | number |
-| byte | b | 1 | number |
-| ushort | H | 2 | number |
-| short | h | 2 | number |
-| uint | I | 4 | number |
-| int | i | 4 | number |
-| ulong | Q | 8 | number |
-| long | q | 8 | number |
-| float | f | 4 | number |
-| toffset | Q | 8 | text |
-| array | QI | 12 | array |
-
-#### Nested Structures
-
-Nested structures (e.g., effects arrays) are automatically flattened:
-
-**KuroTools format:**
-```json
-"effects": {
-    "size": 5,
-    "schema": {
-        "id": "uint",
-        "value1": "uint",
-        "value2": "uint"
-    }
-}
-```
-
-**Converted to:**
-```json
-"keys": [
-    "eff1_id", "eff1_value1", "eff1_value2",
-    "eff2_id", "eff2_value1", "eff2_value2",
-    ...
-]
-```
-
-#### Usage Workflow
-
-1. **Backup** original kurodlc_schema.json:
-   ```bash
-   copy kurodlc_schema.json kurodlc_schema.json.backup
-   ```
-
-2. **Run converter**:
-   ```bash
-   python convert_kurotools_schemas.py
-   ```
-
-3. **Review report**:
-   ```bash
-   type conversion_report.txt
-   ```
-
-4. **Replace schema**:
-   ```bash
-   copy kurodlc_schema_updated.json kurodlc_schema.json
-   ```
-
-5. **Test** with new TBL files
-
-#### Troubleshooting
-
-**Problem: "Headers directory not found"**
-- Ensure `schemas/headers/` folder exists in same directory
-- Download from https://github.com/nnguyen259/KuroTools
-
-**Problem: "No schemas found"**
-- Check folder structure: `schemas/headers/*.json`
-- Verify JSON files are valid
-
-**Problem: Schema has wrong size**
-- Check nested structures in KuroTools schema
-- Verify data type sizes
-- May need manual adjustment for complex types
-
----
-
-### visualize_id_allocation.py ⭐ NEW
-
-**Purpose:** Analyze and visualize ID allocation patterns to identify free ID ranges and fragmentation
-
-#### Quick Reference
-
-```bash
-# Generate both console and HTML visualization
 python visualize_id_allocation.py
-
-# Console visualization only
-python visualize_id_allocation.py --format=console
-
-# HTML report only with custom filename
 python visualize_id_allocation.py --format=html --output=my_report.html
-
-# Use larger blocks for better overview
-python visualize_id_allocation.py --block-size=100
-
-# Force specific data source
-python visualize_id_allocation.py --source=json
+python visualize_id_allocation.py --format=console --block-size=100
+python visualize_id_allocation.py --source=json --no-interactive
 ```
 
-#### Features
+**Output:**
+- `id_allocation_map.html` - Interactive HTML report
+- Console statistics and visualization
+- Free blocks table
+- Fragmentation analysis
 
-- **📊 Interactive HTML Map**: Beautiful, interactive visualization with tooltips
-- **🎨 Color-Coded Display**: Green for occupied IDs, gray for free IDs
-- **📈 Gap Analysis**: Identifies and lists all free ID ranges
-- **📊 Statistics Dashboard**: Shows allocation metrics and fragmentation
-- **💾 Dual Output**: Both console and HTML formats
-- **🔍 Block-Based View**: Configurable block sizes for better overview
+#### 5. `convert_kurotools_schemas.py`
+**Purpose:** Convert KuroTools schema definitions to kurodlc_schema.json format
 
-#### HTML Report Features
+**Features:**
+- Converts 280+ KuroTools schemas
+- Automatic type mapping
+- Nested structure flattening
+- Duplicate detection and merging
+- Detailed conversion reports
 
-The generated HTML report (`id_allocation_map.html`) includes:
-
-**Statistics Dashboard:**
-- Engine Range (1-5000)
-- Highest Used ID
-- Occupied IDs count and percentage
-- Free IDs count and percentage
-- Average Gap Size
-- Fragmentation Index
-- Largest Free Block
-- Total Free Blocks
-
-**Visual ID Map:**
-- 100-column grid showing all 5000 IDs
-- Green cells = occupied IDs
-- Gray cells = free IDs
-- Hover tooltips with ID numbers
-- Search functionality for specific IDs
-
-**Free Blocks Table:**
-- Lists all available ID ranges
-- Shows block size for each range
-- Sortable by start ID or size
-- Perfect for finding safe ID ranges for new mods
-
-#### Example Output
-
-**Console Output:**
-```
-Loading item data...
-
-Loaded 2116 items from: t_item.json
-
-ID Allocation Analysis
-═══════════════════════════════════════════════════════════
-
-Statistics:
-  Engine Range:       1 - 5000
-  Highest Used ID:    4921
-  Occupied IDs:       2116 / 5000  (42.3%)
-  Free IDs:           2884 / 5000  (57.7%)
-  Average Gap Size:   7.8 IDs
-  Fragmentation:      0.73 (73% fragmented)
-  Largest Free Block: 79 IDs (4922-5000)
-  Total Free Blocks:  370
-
-ID Allocation Map (Block Size: 50)
-═══════════════════════════════════════════════════════════
-
-    0: ████████████████████████████████████████████████ [  0 -  49]  100.0%
-   50: ████████████████████████████████████████████████ [ 50 -  99]  100.0%
-  100: ████████████████████████████████████████████████ [100 - 149]  100.0%
-  ...
- 4950: ██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ [4950-4999]   12.0%
-
-Legend: █ Occupied  ░ Free
-
-HTML report generated: id_allocation_map.html
-```
-
-#### Parameters
-
-| Parameter | Description | Default |
-|-----------|-------------|---------|
-| `--source=TYPE` | Force specific source (json, tbl, original, p3a, zzz) | Auto-detect |
-| `--no-interactive` | Auto-select first source if multiple found | Interactive |
-| `--keep-extracted` | Keep temporary extracted files from P3A | Delete after use |
-| `--format=FORMAT` | Output format: console, html, both | both |
-| `--block-size=N` | Block size for console visualization | 50 |
-| `--output=FILE` | Custom HTML output filename | id_allocation_map.html |
-| `--help` | Show help message | - |
-
-#### Use Cases
-
-**1. Before Creating New Mods:**
+**Usage:**
 ```bash
-# Check current ID allocation
-python visualize_id_allocation.py
-
-# Look for large free blocks in HTML report
-# Example: IDs 3500-3650 (150 IDs available)
+python convert_kurotools_schemas.py
 ```
 
-**2. Planning Multi-Mod Projects:**
+**Requirements:**
+- KuroTools `schemas/` folder in same directory
+
+**Output:**
+- `kurodlc_schema_updated.json` - Updated schema file
+- `conversion_report.txt` - Detailed conversion log
+
+### Discovery Scripts
+
+#### 6. `find_all_items.py`
+Browse all items from game database
+
+**Usage:**
 ```bash
-# Generate report to coordinate ID ranges between mods
-python visualize_id_allocation.py --output=project_allocation.html
-
-# Share HTML report with team to avoid conflicts
-```
-
-**3. Analyzing Fragmentation:**
-```bash
-# Check fragmentation index
-# High fragmentation (>0.7) = many small gaps
-# Low fragmentation (<0.3) = few large gaps
-```
-
-**4. Finding Optimal ID Ranges:**
-```bash
-# Look at "Largest Free Block" statistic
-# Use HTML table to find multiple suitable ranges
-```
-
-#### Supported Data Sources
-
-- **t_item.json** - JSON format item table
-- **t_item.tbl** - Binary table file
-- **t_item.tbl.original** - Original backup
-- **script_en.p3a / script_eng.p3a** - P3A archives (extracts t_item.tbl)
-- **zzz_combined_tables.p3a** - Combined tables archive
-
-#### Workflow Integration
-
-```bash
-# Step 1: Analyze current allocation
-python visualize_id_allocation.py
-
-# Step 2: Open HTML report to find free ranges
-start id_allocation_map.html
-
-# Step 3: Use free ranges in your DLC
-# Example: Use IDs 3500-3650 for weapons
-
-# Step 4: After adding items, verify no conflicts
-python resolve_id_conflicts_in_kurodlc.py my_mod.kurodlc.json --check
-```
-
----
-
-### find_all_names.py ⭐ NEW
-
-**Purpose:** Search and browse character names from game data with intelligent filtering
-
-#### Quick Reference
-
-```bash
-# List all characters
-python find_all_names.py
-
-# Search by character name (auto-detect)
-python find_all_names.py van
-
-# Search by ID (auto-detect)
-python find_all_names.py 100
-
-# Explicit search modes
-python find_all_names.py name:100       # Search "100" in names
-python find_all_names.py id:100         # Search character ID 100
-python find_all_names.py full_name:arkride
-python find_all_names.py model:chr0000
-
-# Show additional fields
-python find_all_names.py van --show-full --show-model
-
-# Force specific source
-python find_all_names.py --source=json
-```
-
-#### Features
-
-- **👤 Character Discovery**: Browse all game characters
-- **🔍 Smart Search**: Auto-detects ID vs name searches
-- **📋 Multi-Source Support**: JSON, TBL, P3A archives
-- **🎯 Multi-Field Filtering**: Search by ID, name, full name, or model
-- **📊 Clean Output**: Formatted tables with alignment
-- **⚙️ Flexible Options**: Show/hide additional fields
-
-#### Search Modes
-
-**Auto-Detection:**
-```bash
-python find_all_names.py 100     # → ID search (it's a number)
-python find_all_names.py van     # → Name search (it's text)
-```
-
-**Explicit Modes:**
-```bash
-python find_all_names.py id:100          # Search by character ID
-python find_all_names.py name:van        # Search in character names
-python find_all_names.py name:100        # Search "100" in names (not ID!)
-python find_all_names.py full_name:arkride  # Search in full names
-python find_all_names.py model:chr0100   # Search in model names
-```
-
-#### Example Output
-
-**Basic Search:**
-```bash
-$ python find_all_names.py van
-
-Loading character name data...
-
-Loaded 500 characters from: t_name.json
-
-100 : ヴァン
-101 : ヴァン・アークライド
-225 : ヴァンダール
-
-Total: 3 character(s)
-```
-
-**With Full Names and Models:**
-```bash
-$ python find_all_names.py van --show-full --show-model
-
-Loading character name data...
-
-Loaded 500 characters from: t_name.json
-
-100 : ヴァン              | Van Arkride           | chr0100_01
-101 : ヴァン・アークライド | Van Arkride (Full)    | chr0100_02
-225 : ヴァンダール        | Vandaal               | chr0225
-
-Total: 3 character(s)
-```
-
-#### Parameters
-
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `search_query` | Search query with optional prefix | `van`, `id:100`, `name:ark` |
-| `--source=TYPE` | Force specific source | `--source=json` |
-| `--no-interactive` | Auto-select first source | Auto-select if multiple |
-| `--keep-extracted` | Keep P3A extracted files | Keep temp files |
-| `--show-full` | Show full names in output | Display full_name field |
-| `--show-model` | Show model names in output | Display model field |
-| `--help` | Show help message | Display usage |
-
-#### Use Cases
-
-**1. Character ID Lookup:**
-```bash
-# Find character ID for scripting
-python find_all_names.py "ヴァン"
-# Output: 100 : ヴァン
-```
-
-**2. Verify Character Model:**
-```bash
-# Check which model a character uses
-python find_all_names.py id:100 --show-model
-# Output: 100 : ヴァン | chr0100_01
-```
-
-**3. Browse Character Names:**
-```bash
-# List all characters with "アーロン" in name
-python find_all_names.py アーロン --show-full
-```
-
-**4. Model Reference:**
-```bash
-# Find all characters using specific model
-python find_all_names.py model:chr0100
-```
-
-#### Supported Data Sources
-
-- **t_name.json** - JSON format name table
-- **t_name.tbl** - Binary table file
-- **t_name.tbl.original** - Original backup
-- **script_en.p3a / script_eng.p3a** - P3A archives (extracts t_name.tbl)
-- **zzz_combined_tables.p3a** - Combined tables archive
-
-#### Important Notes
-
-**Auto-Detection Caveat:**
-```bash
-# These behave differently!
-python find_all_names.py 100      # → Searches for character ID 100
-python find_all_names.py name:100 # → Searches for "100" in character names
-
-# Script shows auto-detection hints:
-# Auto-detected ID search for '100'
-# Use 'name:100' to search for '100' in character names instead
-```
-
-**Output Fields:**
-- **ID**: Character ID number
-- **Name**: Character display name (Japanese/English)
-- **Full Name**: Complete character name (with --show-full)
-- **Model**: 3D model identifier (with --show-model)
-
----
-
-### find_all_items.py
-
-**Purpose:** Search and browse game items with auto-source detection
-
-#### Quick Reference
-
-```bash
-# Search items (auto-detects source)
-python find_all_items.py sepith
-
-# Browse all items
 python find_all_items.py
-
-# Force specific source
-python find_all_items.py sepith --source=json
-python find_all_items.py sepith --source=tbl
-python find_all_items.py sepith --source=p3a
+python find_all_items.py --source=json
 ```
 
-#### Auto-Detection Priority
+#### 7. `find_all_names.py`
+Browse character names from game database
 
-1. `t_item.json` (fastest)
-2. `t_item.tbl` or `t_item.tbl.original`
-3. `script_en.p3a` / `script_eng.p3a`
-4. `zzz_combined_tables.p3a`
-
----
-
-### find_all_shops.py
-
-**Purpose:** List all shops from game data
-
-#### Quick Reference
-
+**Usage:**
 ```bash
-# Auto-detect and list shops
-python find_all_shops.py
-
-# Force source
-python find_all_shops.py --source=json
+python find_all_names.py
 ```
+
+#### 8. `find_all_shops.py`
+Browse all shops from game database
+
+**Usage:**
+```bash
+python find_all_shops.py
+```
+
+#### 9. `find_unique_item_id_for_t_costumes.py`
+Find unique/available IDs for costume category
+
+**Usage:**
+```bash
+python find_unique_item_id_for_t_costumes.py
+```
+
+#### 10. `find_unique_item_id_for_t_item_category.py`
+Find unique/available IDs by item category
+
+**Usage:**
+```bash
+python find_unique_item_id_for_t_item_category.py
+```
+
+#### 11. `find_unique_item_id_from_kurodlc.py`
+Extract unique item IDs from DLC files
+
+**Usage:**
+```bash
+python find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json
+```
+
+### 3D Model Viewer Scripts ⭐ NEW
+
+#### 12. `viewer_mdl/viewer.py`
+Standalone 3D model viewer with minimal dependencies
+
+**Purpose:** Core viewer with HTML generation
+
+**Usage:**
+```bash
+python viewer_mdl/viewer.py character.mdl
+python viewer_mdl/viewer.py character.mdl --use-original-normals
+```
+
+**Output:** HTML file with embedded 3D model
+
+#### 13. `viewer_mdl/viewer_mdl.py`
+Standard HTML viewer with Three.js rendering
+
+**Purpose:** Generate HTML visualization of .mdl files
+
+**Usage:**
+```bash
+python viewer_mdl/viewer_mdl.py character.mdl
+```
+
+**Features:**
+- HTML output with Three.js
+- Automatic smooth normal computation
+- Optional original normals
+
+**Output:** `<model_name>_viewer.html`
+
+#### 14. `viewer_mdl/viewer_mdl_optimized.py`
+Optimized version with better performance
+
+**Purpose:** Faster processing for large models
+
+**Usage:**
+```bash
+python viewer_mdl/viewer_mdl_optimized.py character.mdl
+```
+
+**Features:**
+- Optimized mesh processing
+- Faster normal computation
+- Better memory usage
+
+#### 15. `viewer_mdl/viewer_mdl_window.py`
+Native window viewer (no HTML files)
+
+**Purpose:** Preview models in native window without creating files
+
+**Requirements:**
+```bash
+pip install pywebview
+```
+
+**Usage:**
+```bash
+python viewer_mdl/viewer_mdl_window.py character.mdl
+python viewer_mdl/viewer_mdl_window.py character.mdl --use-original-normals
+```
+
+**Features:**
+- Native window (WebView2 on Windows)
+- No temporary files left behind
+- Auto-cleanup on exit
+- Interactive 3D viewing
+
+**Platform Support:**
+- Windows: Edge WebView2
+- Linux: GTK + WebKit2
+- macOS: WKWebView
 
 ---
 
 ## 🔄 Common Workflows
 
-### Workflow 1: Complete DLC Creation
-
+### Workflow 1: Complete Mod Creation
 ```bash
-# 1. Create your DLC items in my_mod.kurodlc.json
-
-# 2. Check and fix ID conflicts
-python resolve_id_conflicts_in_kurodlc.py repair --apply
-
-# 3. Generate shop template
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template
-
-# 4. Create shop assignments
-python shops_create.py template_my_mod.json
-
-# 5. Merge ShopItem section into your DLC
-
-# 6. Test in game!
-```
-
-### Workflow 2: ID Allocation Planning ⭐ NEW
-
-```bash
-# 1. Analyze current ID allocation
+# Step 1: Visualize available ID ranges
 python visualize_id_allocation.py
 
-# 2. Open HTML report
-start id_allocation_map.html
+# Step 2: Check existing DLC for conflicts
+python resolve_id_conflicts_in_kurodlc.py checkbydlc
 
-# 3. Review statistics and find suitable free blocks
-# Look for:
-# - Largest free blocks (e.g., 3500-3650: 150 IDs)
-# - Low fragmentation areas
-# - Gaps large enough for your mod items
+# Step 3: Fix conflicts automatically
+python resolve_id_conflicts_in_kurodlc.py repair --apply
 
-# 4. Plan your ID ranges based on findings
-# Example: Weapons in 3500-3549, Armor in 3550-3599
-
-# 5. Create your DLC using planned ID ranges
-# (edit .kurodlc.json manually or with scripts)
-
-# 6. Verify no conflicts
-python resolve_id_conflicts_in_kurodlc.py my_mod.kurodlc.json --check
-
-# 7. If conflicts found, let algorithm reassign
-python resolve_id_conflicts_in_kurodlc.py my_mod.kurodlc.json repair --apply
+# Step 4: Generate shop assignments
+python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-template
+python shops_create.py template_my_mod.json
 ```
 
-### Workflow 3: Character Reference Lookup ⭐ NEW
-
+### Workflow 2: Manual ID Control
 ```bash
-# 1. Find character ID by name
-python find_all_names.py "ヴァン"
-# Output: 100 : ヴァン
+# Step 1: Export repair plan
+python resolve_id_conflicts_in_kurodlc.py repair --export --export-name=my_mod
 
-# 2. Verify character model for custom events
-python find_all_names.py 100 --show-model
-# Output: 100 : ヴァン | chr0100_01
+# Step 2: Manually edit id_mapping_my_mod.json
 
-# 3. Find all characters in a series
-python find_all_names.py アーロン --show-full
-# Output: List of all Aaron characters with full names
-
-# 4. Export character list for documentation
-python find_all_names.py > character_reference.txt
+# Step 3: Import and apply
+python resolve_id_conflicts_in_kurodlc.py repair --import --mapping-file=id_mapping_my_mod.json
 ```
 
-### Workflow 4: Schema Expansion
-
+### Workflow 3: Team Coordination
 ```bash
-# 1. Download/copy KuroTools schemas folder
+# Team lead: Generate ID allocation report
+python visualize_id_allocation.py --format=html --output=team_report.html
 
-# 2. Backup current schema
-copy kurodlc_schema.json kurodlc_schema.json.backup
+# Share team_report.html with team
 
-# 3. Run conversion
+# Each modder: Use assigned ID ranges from report
+# Modder A: Uses IDs 3500-3599
+# Modder B: Uses IDs 3600-3699
+```
+
+### Workflow 4: Schema Update
+```bash
+# Step 1: Download KuroTools schemas folder
+
+# Step 2: Convert schemas
 python convert_kurotools_schemas.py
 
-# 4. Review report
-type conversion_report.txt
+# Step 3: Replace kurodlc_schema.json with kurodlc_schema_updated.json
 
-# 5. Replace schema
-copy kurodlc_schema_updated.json kurodlc_schema.json
-
-# 6. Now you can work with new TBL files!
+# Step 4: Test with new TBL files
+python find_all_items.py --source=tbl
 ```
 
-### Workflow 5: Manual ID Control
-
+### Workflow 5: 3D Model Inspection
 ```bash
-# 1. Export ID mapping
-python resolve_id_conflicts_in_kurodlc.py repair --export --export-name=MyMod
+# Quick preview
+python viewer_mdl/viewer_mdl_window.py character.mdl
 
-# 2. Edit id_mapping_MyMod.json manually
-# Change specific IDs as needed
+# Generate shareable HTML
+python viewer_mdl/viewer_mdl.py character.mdl
 
-# 3. Import and apply
-python resolve_id_conflicts_in_kurodlc.py repair --import --mapping-file=id_mapping_MyMod.json
-```
-
-### Workflow 6: CI/CD Integration
-
-```bash
-# Non-interactive conflict resolution
-python resolve_id_conflicts_in_kurodlc.py repair --apply --no-interactive
-
-# Non-interactive shop generation
-python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json \
-    --generate-template \
-    --no-interactive \
-    --default-shop-ids 5,10,21
-
-python shops_create.py template_my_mod.kurodlc.json
+# Batch processing
+for f in *.mdl; do python viewer_mdl/viewer_mdl.py "$f"; done
 ```
 
 ---
 
-## 📁 File Formats
+## 📄 File Formats
 
-### .kurodlc.json Structure
+### .kurodlc.json Format
+Main DLC mod configuration file. Contains:
+- **CostumeParam**: Costume definitions with item_id references
+- **ItemTableData**: Item metadata (names, descriptions, categories)
+- **DLCTableData**: DLC pack definitions with item lists
+- **ShopItem**: Shop assignment entries (optional)
 
+### ID Mapping Format
 ```json
 {
-    "ItemTableData": [
-        {
-            "id": 4000,
-            "name": "My Custom Item",
-            ...
-        }
-    ],
-    "ShopItem": [
-        {
-            "shop_id": 5,
-            "item_id": 4000,
-            ...
-        }
-    ],
-    "DLCTableData": [
-        {
-            "id": 1,
-            "items": 4000,
-            ...
-        }
-    ]
-}
-```
-
-### ID Mapping Export Format
-
-```json
-{
-    "metadata": {
-        "timestamp": "2026-02-02T14:30:00",
-        "total_conflicts": 5,
-        "dlc_files": ["my_mod.kurodlc.json"]
-    },
-    "mappings": {
-        "my_mod.kurodlc.json": {
-            "old_id": "new_id",
-            "310": "4000",
-            "311": "4001"
-        }
+  "source_file": "my_mod.kurodlc.json",
+  "timestamp": "2026-02-04 12:00:00",
+  "game_database": "t_item.json",
+  "game_id_count": 2116,
+  "game_id_range": [1, 4921],
+  "mappings": {
+    "310": 2500,
+    "311": 2501
+  },
+  "conflicts": [
+    {
+      "old_id": 310,
+      "new_id": 2500,
+      "reason": "Conflict with game item: Earth Sepith"
     }
+  ]
 }
 ```
 
-### Schema Conversion Report Format ⭐ NEW
-
+### Shop Template Format
+```json
+{
+  "_comment": ["Template for shops_create.py"],
+  "item_ids": [3596, 3597, 3598],
+  "shop_ids": [5, 6, 10],
+  "template": {
+    "shop_id": "${shop_id}",
+    "item_id": "${item_id}",
+    "unknown": 1,
+    "start_scena_flags": [],
+    "empty1": 0,
+    "end_scena_flags": [],
+    "int2": 0
+  }
+}
 ```
-KuroTools Schema Conversion Report
-======================================================================
 
-Original schemas: 39
-KuroTools schemas found: 282
-Converted schemas: 343
-New schemas added: 305
-Total schemas: 344
+### Visualization Report
+- **HTML format**: Interactive color-coded ID allocation map
+- **Console format**: Terminal-based visualization with statistics
 
-New Schema Tables:
-----------------------------------------------------------------------
-  RecaptureIslandSkillTable    Size:  144  Game: Ys_X
-  BattleBGM                    Size:   56  Game: Kuro2
-  ...
-```
+### 3D Model Formats
+- **Input**: `.mdl` files (Kuro engine 3D models)
+- **Output**: HTML with Three.js or native window display
 
 ---
 
@@ -1122,108 +722,122 @@ New Schema Tables:
 
 ### Common Issues
 
-**"No .kurodlc.json files found"**
-- Ensure you're in the correct directory
-- Check filename extensions (.kurodlc.json, not .json)
+**1. "No module named 'colorama'"**
+```bash
+pip install colorama --break-system-packages
+```
 
-**"No valid source found for conflict detection"**
-- Need at least one: t_item.json, t_item.tbl, or script_en.p3a
-- Check file locations and names
+**2. "Cannot read .tbl files"**
+Install optional dependencies:
+```bash
+pip install lz4 zstandard xxhash --break-system-packages
+```
 
-**"Not enough available IDs"**
-- Game has 5000 ID limit
-- Reduce number of items or check existing game data
-- Review repair plan to see ID usage
+**3. "No schemas found" (convert_kurotools_schemas.py)**
+Download KuroTools and place `schemas/` folder in toolkit directory.
 
-**"Headers directory not found"** ⭐ NEW
-- Download KuroTools schemas folder
-- Place in same directory as convert_kurotools_schemas.py
-- Structure: `schemas/headers/*.json`
+**4. "No free IDs available"**
+Game has reached 5000 ID limit. Use visualize_id_allocation.py to find gaps.
 
-**"Schema size mismatch"** ⭐ NEW
-- Complex nested structures may need manual adjustment
-- Check conversion report for details
-- Compare with KuroTools schema definitions
+**5. "viewer_mdl_window.py not working"**
+Install pywebview:
+```bash
+pip install pywebview --break-system-packages
+```
 
-### Debug Mode
+**6. Visualization shows no data**
+Ensure data source (t_item.json or .tbl) is in current directory.
 
-Enable detailed logging by checking script output - all scripts provide comprehensive error messages and suggestions.
+### Platform-Specific Notes
+
+**Windows:**
+- Use `install_python_modules.bat` for easy setup
+- Colored output works in CMD and PowerShell
+- WebView2 required for viewer_mdl_window.py (usually pre-installed)
+
+**Linux:**
+- Use `--break-system-packages` flag with pip
+- Install GTK and WebKit2 for viewer_mdl_window.py
+- Some distributions may need `python3` instead of `python`
+
+**macOS:**
+- Use `--break-system-packages` flag with pip
+- WKWebView used for viewer_mdl_window.py
 
 ---
 
 ## 💡 Best Practices
 
 ### ID Management
-1. **Always check for conflicts** before releasing your mod
-2. **Visualize ID allocation** first with `visualize_id_allocation.py` to find safe ranges
-3. **Use the smart algorithm** (v2.7) for better ID distribution
-4. **Keep backups** - automatic backups are created, but keep your own too
-5. **Export ID mappings** if you need to manually adjust specific IDs
-6. **Test your mod** after applying ID changes
+1. **Always visualize first**: Run `visualize_id_allocation.py` before creating mods
+2. **Use safe ranges**: Choose IDs from large free blocks (>50 IDs)
+3. **Start from middle**: The smart algorithm uses 2500+ for better distribution
+4. **Leave buffer**: Don't use all IDs in a range, leave space for future additions
+5. **Document ranges**: Keep notes on which ID ranges your mods use
 
-### ID Allocation Analysis ⭐ NEW
-1. **Run visualize_id_allocation.py** before starting a new mod project
-2. **Review HTML report** to identify large free blocks
-3. **Plan ID ranges** based on available gaps (avoid fragmentation)
-4. **Check fragmentation index** - aim for larger continuous blocks
-5. **Share reports** with team to coordinate ID usage
-6. **Re-analyze** after major game updates
+### Shop Assignment
+1. **Generate templates**: Use `shops_find_unique_item_id_from_kurodlc.py --generate-template`
+2. **Review before applying**: Check generated template before running shops_create.py
+3. **Use meaningful shop IDs**: Match actual game shop IDs from t_shop.json
+4. **Batch operations**: Process all items at once instead of one-by-one
 
-### Character Reference ⭐ NEW
-1. **Use find_all_names.py** to look up character IDs for scripting
-2. **Verify model names** before creating custom events
-3. **Check full names** for accurate dialogue references
-4. **Export character lists** for documentation purposes
+### Schema Conversion
+1. **Backup original**: Keep copy of kurodlc_schema.json before updating
+2. **Review report**: Check conversion_report.txt for any errors
+3. **Test after update**: Verify TBL files load correctly after schema update
+4. **Share updates**: Updated schemas can be shared with community
 
-### Shop Assignments
-1. **Review templates** before generating assignments
-2. **Use meaningful shop IDs** that match actual game shops
-3. **Customize templates** for different item types if needed
-4. **Test in-game** - verify items appear in correct shops
+### 3D Model Viewing
+1. **Use window viewer for quick checks**: viewer_mdl_window.py is fastest
+2. **HTML for sharing**: Use viewer_mdl.py to create shareable visualizations
+3. **Original normals**: Use `--use-original-normals` if model looks incorrect
+4. **Batch processing**: Script loops for processing multiple models
 
-### Schema Conversion ⭐ NEW
-1. **Backup original** kurodlc_schema.json before conversion
-2. **Review report** to see what was added
-3. **Test with TBL files** to verify schemas work
-4. **Keep KuroTools updated** to get latest schemas
-5. **Re-run converter** when KuroTools adds new schemas
-
-### Development Workflow
-1. **Work with JSON files** - easier to edit and track changes
-2. **Use version control** (git) to track modifications
-3. **Document your changes** in commit messages
-4. **Test incrementally** - don't change everything at once
+### General
+1. **Keep backups**: Script creates automatic backups, but keep your own too
+2. **Read logs**: Check log files for detailed information on operations
+3. **Test incrementally**: Test changes on small DLCs before large projects
+4. **Version control**: Use git or similar to track changes to your mods
 
 ---
 
-## 📝 Version History
+## 📜 Version History
 
-### v1.0 (2026-02-02) - NEW ANALYSIS TOOLS ⭐ NEW
-- **New Script:** `visualize_id_allocation.py` - ID allocation visualization
-  - Interactive HTML map generation
-  - Color-coded visualization (occupied vs free)
+### v3.0 (2026-02-04) - MAJOR UPDATE ⭐
+**New Features:**
+- **visualize_id_allocation.py**: Complete ID allocation visualization system
+  - Interactive HTML reports with color-coded maps
+  - Console visualization with statistics
   - Gap analysis and fragmentation metrics
   - Free block identification
-  - Dual output: console + HTML
-  - Configurable block sizes
-- **New Script:** `find_all_names.py` - Character name search
-  - Multi-source support (JSON, TBL, P3A)
-  - Smart search with auto-detection
-  - Multi-field filtering (ID, name, full_name, model)
-  - Clean formatted output
-  - Optional field display
-- **Documentation:** Updated README with detailed examples
-- **Status:** Production ready
+  - Customizable block sizes
+  - Multiple output formats (console, HTML, both)
+  
+- **3D Model Viewer Suite** (viewer_mdl/):
+  - `viewer.py`: Standalone core viewer
+  - `viewer_mdl.py`: Standard HTML viewer
+  - `viewer_mdl_optimized.py`: Performance-optimized version
+  - `viewer_mdl_window.py`: Native window viewer (no files)
+  - Automatic smooth normal computation
+  - Support for original normals
+  - Three.js integration
+  - Clean operation (no temp files in window mode)
 
-### v1.0 (2026-02-02) - convert_kurotools_schemas.py RELEASE
-- **New:** Schema conversion from KuroTools to kurodlc format
-- **New:** Support for 280+ KuroTools schema files
-- **New:** Multi-game support (Kuro 1/2, Kai, Ys X, Sky)
-- **New:** Automatic type mapping and size calculation
-- **New:** Nested structure flattening
-- **New:** Detailed conversion reports
-- **New:** Duplicate detection and merging
-- **Result:** 305 new schemas added (39 → 344 total)
+**Improvements:**
+- Enhanced documentation with new sections
+- Updated README with comprehensive feature list
+- Added VISUALIZATION_GUIDE.md
+- Improved example files
+
+### v2.8 (2026-01-31) - Schema Conversion
+**New Features:**
+- **convert_kurotools_schemas.py**: Complete KuroTools schema converter
+  - Converts 280+ schema definitions
+  - Automatic type mapping and size calculation
+  - Nested structure flattening
+  - Duplicate detection and merging
+  - Detailed conversion reports
+  - Expands support from 39 to 344+ schemas
 
 ### v2.7.1 (2026-01-31) - resolve_id_conflicts BUGFIX
 - **Fixed:** Removed bare except clause (line 929)
@@ -1284,7 +898,17 @@ This toolkit uses the following external libraries:
 
 **Note:** These libraries are included in this repository for convenience. All credit for these components goes to the original author.
 
-### From [nnguyen259/KuroTools](https://github.com/nnguyen259/KuroTools) ⭐ NEW
+### From [eArmada8/kuro_mdl_tool](https://github.com/eArmada8/kuro_mdl_tool) ⭐ NEW
+- **`kuro_mdl_export_meshes.py`** - MDL model parsing and mesh export
+- **`lib_fmtibvb.py`** - Format/Index/Vertex buffer handling
+
+**License:** GPL-3.0  
+**Author:** eArmada8  
+**Repository:** https://github.com/eArmada8/kuro_mdl_tool
+
+**Note:** These libraries are included in `viewer_mdl/` folder. All credit goes to the original author.
+
+### From [nnguyen259/KuroTools](https://github.com/nnguyen259/KuroTools)
 - **Schema definitions** - 280+ TBL structure definitions in `schemas/headers/`
 
 **Note:** KuroTools schemas are NOT included in this repository. Users must download them separately for schema conversion functionality.
@@ -1299,10 +923,21 @@ This toolkit uses the following external libraries:
   - License: BSD
   - Used for: User-friendly colored output in Windows CMD
 
+- **`numpy`** - Numerical computing (for model viewer)
+  - License: BSD
+  - Used for: 3D model vertex processing
+
+- **`pywebview`** - Native window webview (optional)
+  - License: BSD
+  - Used for: Native window viewer (viewer_mdl_window.py)
+
 - **`lz4`** (optional) - LZ4 compression
 - **`zstandard`** (optional) - Zstandard compression  
 - **`xxhash`** (optional) - xxHash hashing
   - Required for: P3A and TBL file support
+
+- **`blowfish`** (optional) - Blowfish encryption
+  - Required for: CLE encrypted assets in model files
 
 ---
 
@@ -1352,7 +987,11 @@ This project is licensed under the **GNU General Public License v3.0**.
 
 **Why GPL-3.0?**
 
-This toolkit uses libraries from [eArmada8/kuro_dlc_tool](https://github.com/eArmada8/kuro_dlc_tool) which are licensed under GPL-3.0. Under GPL-3.0 terms, any software that incorporates GPL-3.0 licensed code must also be licensed under GPL-3.0.
+This toolkit uses libraries from:
+- [eArmada8/kuro_dlc_tool](https://github.com/eArmada8/kuro_dlc_tool) (GPL-3.0)
+- [eArmada8/kuro_mdl_tool](https://github.com/eArmada8/kuro_mdl_tool) (GPL-3.0)
+
+Under GPL-3.0 terms, any software that incorporates GPL-3.0 licensed code must also be licensed under GPL-3.0.
 
 **What This Means for You:**
 
@@ -1380,8 +1019,9 @@ This toolkit uses libraries from [eArmada8/kuro_dlc_tool](https://github.com/eAr
 See the [LICENSE](LICENSE) file for the complete GNU General Public License v3.0 text.
 
 **External Libraries:**
-- `p3a_lib.py` and `kurodlc_lib.py` are from [eArmada8/kuro_dlc_tool](https://github.com/eArmada8/kuro_dlc_tool) (GPL-3.0)
-- All credit for these components goes to the original author
+- `p3a_lib.py` and `kurodlc_lib.py` from [eArmada8/kuro_dlc_tool](https://github.com/eArmada8/kuro_dlc_tool) (GPL-3.0)
+- `kuro_mdl_export_meshes.py` and `lib_fmtibvb.py` from [eArmada8/kuro_mdl_tool](https://github.com/eArmada8/kuro_mdl_tool) (GPL-3.0)
+- All credit for these components goes to the original authors
 
 **Questions about the License?**
 
@@ -1393,8 +1033,8 @@ For more information about GPL-3.0, see:
 
 ## 🙏 Acknowledgments
 
-- **eArmada8** - For the original [kuro_dlc_tool](https://github.com/eArmada8/kuro_dlc_tool) libraries (p3a_lib.py, kurodlc_lib.py)
-- **nnguyen259** - For [KuroTools](https://github.com/nnguyen259/KuroTools) schema definitions ⭐ NEW
+- **eArmada8** - For the original [kuro_dlc_tool](https://github.com/eArmada8/kuro_dlc_tool) and [kuro_mdl_tool](https://github.com/eArmada8/kuro_mdl_tool) libraries
+- **nnguyen259** - For [KuroTools](https://github.com/nnguyen259/KuroTools) schema definitions
 - **The Kuro modding community** - For testing and feedback
 - **All contributors** - Thank you for your contributions!
 
@@ -1408,26 +1048,32 @@ For comprehensive, in-depth documentation including:
 - **Data structure specifications** (.kurodlc.json, exports, imports, logs)
 - **Advanced workflows** (CI/CD, batch processing, manual ID mapping)
 - **Real-world scenarios** with actual game data
-- **Schema conversion details** ⭐ NEW
+- **Schema conversion details**
+- **Visualization guide** ⭐ NEW
+- **3D model viewer guide** ⭐ NEW
 
 See **[ADVANCED_DOCUMENTATION.md](ADVANCED_DOCUMENTATION.md)** ⭐
 
 **What's included:**
 - ✅ All script parameters documented
-- ✅ Examples with real game data (Sepith items: 310-318, Shops: 5,6,10,21-23)
-- ✅ Complete .kurodlc.json structure specification
+- ✅ Examples with real game data
+- ✅ Complete data structure specifications
 - ✅ Export/Import format specifications
 - ✅ Log file formats and examples
-- ✅ Advanced workflows (CI/CD, batch processing, custom ID mapping)
-- ✅ Real-world examples (costume packs, large collections)
-- ✅ Schema conversion guide ⭐ NEW
+- ✅ Advanced workflows (CI/CD, batch processing)
+- ✅ Real-world examples
+- ✅ Schema conversion guide
+- ✅ ID visualization guide ⭐ NEW
+- ✅ 3D model viewer guide ⭐ NEW
 
 **Quick links:**
 - [Script Parameter Reference](ADVANCED_DOCUMENTATION.md#script-reference)
 - [Data Structure Specs](ADVANCED_DOCUMENTATION.md#data-structure-specifications)
 - [Real Data Examples](ADVANCED_DOCUMENTATION.md#real-data-examples)
 - [Advanced Workflows](ADVANCED_DOCUMENTATION.md#advanced-workflows)
-- [Schema Conversion Guide](ADVANCED_DOCUMENTATION.md#schema-conversion) ⭐ NEW
+- [Schema Conversion Guide](ADVANCED_DOCUMENTATION.md#schema-conversion)
+- [Visualization Guide](VISUALIZATION_GUIDE.md) ⭐ NEW
+- [3D Viewer Guide](ADVANCED_DOCUMENTATION.md#3d-model-viewing) ⭐ NEW
 
 ---
 
