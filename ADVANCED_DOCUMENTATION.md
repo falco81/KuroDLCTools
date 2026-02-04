@@ -10,7 +10,7 @@ This section provides comprehensive, in-depth documentation for advanced users, 
   - [shops_create.py](#shops_createpy)
   - [visualize_id_allocation.py](#visualize_id_allocationpy) ⭐ NEW
   - [convert_kurotools_schemas.py](#convert_kurotools_schemaspy)
-  - [3D Model Viewer Scripts](#3d-model-viewer-scripts) ⭐ NEW
+  - [3D Model Viewer Scripts](NEW_FEATURES_DOCUMENTATION.md) ⭐ NEW
   - [find_all_items.py](#find_all_itemspy)
   - [find_all_shops.py](#find_all_shopspy)
   - [Other Utility Scripts](#other-utility-scripts)
@@ -3128,10 +3128,10 @@ python find_all_names.py
 # Loading character name data...
 # Loaded 500 characters from: t_name.json
 #
-#   0 : （なし）
-#   1 : ヴァン
-#   2 : アニエス
-#   3 : フェリ
+#   0 : (None)
+#   1 : Van
+#   2 : Agnes
+#   3 : Feri
 #   ...
 #
 # Total: 500 character(s)
@@ -3148,9 +3148,9 @@ python find_all_names.py van
 # Loading character name data...
 # Loaded 500 characters from: t_name.json
 #
-# 100 : ヴァン
-# 101 : ヴァン・アークライド
-# 225 : ヴァンダール
+# 100 : Van
+# 101 : Van Arkride
+# 225 : Vandaal
 #
 # Total: 3 character(s)
 ```
@@ -3167,7 +3167,7 @@ python find_all_names.py 100
 # Loading character name data...
 # Loaded 500 characters from: t_name.json
 #
-# 100 : ヴァン
+# 100 : Van
 #
 # Total: 1 character(s)
 ```
@@ -3187,9 +3187,9 @@ python find_all_names.py name:100
 python find_all_names.py van --show-full --show-model
 
 # Output:
-# 100 : ヴァン              | Van Arkride           | chr0100_01
-# 101 : ヴァン・アークライド | Van Arkride (Full)    | chr0100_02
-# 225 : ヴァンダール        | Vandaal               | chr0225
+# 100 : Van              | Van Arkride           | chr0100_01
+# 101 : Van Arkride      | Van Arkride (Full)    | chr0100_02
+# 225 : Vandaal          | Vandaal               | chr0225
 #
 # Total: 3 character(s)
 ```
@@ -3200,8 +3200,8 @@ python find_all_names.py van --show-full --show-model
 python find_all_names.py model:chr0100
 
 # Output:
-# 100 : ヴァン              | chr0100_01
-# 101 : ヴァン・アークライド | chr0100_02
+# 100 : Van              | chr0100_01
+# 101 : Van Arkride      | chr0100_02
 #
 # Total: 2 character(s)
 ```
@@ -3236,13 +3236,13 @@ python find_all_names.py van --source=json
       "data": [
         {
           "character_id": 100,
-          "name": "ヴァン",
+          "name": "Van",
           "full_name": "Van Arkride",
           "model": "chr0100_01"
         },
         {
           "character_id": 101,
-          "name": "アニエス",
+          "name": "Agnes",
           "full_name": "Agnes Claudel",
           "model": "chr0101"
         }
@@ -3256,7 +3256,7 @@ python find_all_names.py van --source=json
 ```bash
 $ python find_all_names.py van
 
-100 : ヴァン
+100 : Van
 
 Total: 1 character(s)
 ```
@@ -3265,7 +3265,7 @@ Total: 1 character(s)
 ```bash
 $ python find_all_names.py van --show-full --show-model
 
-100 : ヴァン | Van Arkride | chr0100_01
+100 : Van | Van Arkride | chr0100_01
 
 Total: 1 character(s)
 ```
@@ -3274,7 +3274,7 @@ Total: 1 character(s)
 ```bash
 $ python find_all_names.py 101 --show-full
 
-101 : アニエス | Agnes Claudel
+101 : Agnes | Agnes Claudel
 
 Total: 1 character(s)
 ```
@@ -3284,9 +3284,9 @@ Total: 1 character(s)
 **1. Character ID Lookup for Scripting:**
 ```bash
 # Need character ID for event script
-python find_all_names.py "ヴァン"
+python find_all_names.py "van"
 
-# Output: 100 : ヴァン
+# Output: 100 : Van
 # Use ID 100 in your script
 ```
 
@@ -3295,7 +3295,7 @@ python find_all_names.py "ヴァン"
 # Check which model a character uses
 python find_all_names.py id:100 --show-model
 
-# Output: 100 : ヴァン | chr0100_01
+# Output: 100 : Van | chr0100_01
 # Use chr0100_01 for custom model edits
 ```
 
@@ -3333,7 +3333,7 @@ python find_all_names.py full_name:arkride
 
 **Search Tips:**
 - Searches are case-insensitive
-- Partial matches work (e.g., `van` finds `ヴァン`, `ヴァンダール`)
+- Partial matches work (e.g., `van` finds `Van`, `Vandaal`)
 - Use `--show-full` and `--show-model` for complete information
 - Combine with grep/findstr for advanced filtering
 
