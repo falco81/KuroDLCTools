@@ -19,7 +19,7 @@ This section provides comprehensive, in-depth documentation for advanced users, 
 - [Export/Import Formats](#exportimport-formats)
 - [Log Files](#log-files)
 - [Advanced Workflows](#advanced-workflows)
-- [3D Model Viewing](#3d-model-viewing) ⭐ NEW
+- [3D Model Viewing](NEW_FEATURES_DOCUMENTATION.md) ⭐ NEW
 
 ---
 
