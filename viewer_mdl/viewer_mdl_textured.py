@@ -712,6 +712,7 @@ def generate_html_with_textures(mdl_path: Path, meshes: list, material_texture_m
     }}
 
     function loadMeshes() {{
+      const hideKeywords = ['shadow', 'kage'];
       const colors = [0xff6b6b, 0x4ecdc4, 0xffe66d, 0x95e1d3, 0xf38181];
       
       data.forEach((meshData, idx) => {{
@@ -740,7 +741,7 @@ def generate_html_with_textures(mdl_path: Path, meshes: list, material_texture_m
         mesh.userData.hasTexture = !!meshData.material && !!materials[meshData.material];
         
         // Auto-hide shadow meshes if enabled in config
-        if (CONFIG.AUTO_HIDE_SHADOW && meshData.name.toLowerCase().includes('shadow')) {{
+        if (CONFIG.AUTO_HIDE_SHADOW && hideKeywords.some(keyword => meshData.name.toLowerCase().includes(keyword))) {{
           mesh.visible = false;
         }}
         
