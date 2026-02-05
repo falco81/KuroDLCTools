@@ -5,6 +5,20 @@ A comprehensive Python toolkit for creating and managing DLC mods for games usin
 [![Python Version](https://img.shields.io/badge/python-3.7%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 
+**viewer_mdl_textured.exe**
+
+new tool for quick preview of model. ideally associate exe with mdl file. for correct display of textures it looks for standard folder structure
+```
+└───asset
+    ├───common
+    │   └───model
+    └───dx11
+        └───image
+```
+
+![viewer_mdl/viewer.png](viewer_mdl/viewer.png)
+
+
 > **⚠️ GPL-3.0 License Notice**  
 > This project uses libraries from [eArmada8/kuro_dlc_tool](https://github.com/eArmada8/kuro_dlc_tool) which are licensed under GPL-3.0.  
 > Therefore, this entire toolkit is also distributed under GPL-3.0 license.  
