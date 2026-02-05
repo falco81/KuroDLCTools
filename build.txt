@@ -1,0 +1,1 @@
+python -m PyInstaller --onefile --add-data "kurodlc_schema.json;." visualize_id_allocation.py
