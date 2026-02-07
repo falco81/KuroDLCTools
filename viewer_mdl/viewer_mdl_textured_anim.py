@@ -567,8 +567,8 @@ def load_animations_from_directory(mdl_path: Path, skeleton_data: list) -> list:
     # Extract base name: chr5001_c11 -> chr5001
     base_name = model_stem.split('_')[0]  # chr5001
     
-    # Find animation MDL files: chr5001_m_*.mdl
-    pattern = str(mdl_dir / f"{base_name}_m_*.mdl")
+    # Find animation MDL files: *chr5001*_m_*.mdl
+    pattern = str(mdl_dir / f"*{base_name}*_m_*.mdl")
     anim_files = sorted(_glob.glob(pattern))
     
     if not anim_files:
