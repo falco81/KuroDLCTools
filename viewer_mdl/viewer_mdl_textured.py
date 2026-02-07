@@ -424,6 +424,47 @@ def generate_html_with_textures(mdl_path: Path, meshes: list, material_texture_m
              color: white; padding: 10px; margin: 5px 0; cursor: pointer;
              border-radius: 6px; width: 100%; font-weight: 600; font-size: 13px; }}
     button:hover {{ transform: translateY(-1px); box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4); }}
+    .toggle-btn {{
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(124, 58, 237, 0.15); border: 1px solid rgba(124, 58, 237, 0.3);
+      color: #e0e0e0; padding: 10px 12px; margin: 5px 0; cursor: pointer;
+      border-radius: 6px; width: 100%; font-weight: 500; font-size: 13px;
+      transition: all 0.2s ease;
+    }}
+    .toggle-btn:hover {{ background: rgba(124, 58, 237, 0.25); }}
+    .toggle-btn.active {{
+      background: rgba(124, 58, 237, 0.35); border-color: rgba(124, 58, 237, 0.6);
+    }}
+    .toggle-btn .toggle-label {{ display: flex; align-items: center; gap: 6px; }}
+    .toggle-btn .toggle-indicator {{
+      width: 36px; height: 20px; border-radius: 10px; position: relative;
+      background: rgba(100, 100, 120, 0.5); transition: background 0.2s ease; flex-shrink: 0;
+    }}
+    .toggle-btn.active .toggle-indicator {{ background: #7c3aed; }}
+    .toggle-btn .toggle-indicator::after {{
+      content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%;
+      background: white; top: 2px; left: 2px; transition: transform 0.2s ease;
+    }}
+    .toggle-btn.active .toggle-indicator::after {{ transform: translateX(16px); }}
+    .cycle-btn {{
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(124, 58, 237, 0.15); border: 1px solid rgba(124, 58, 237, 0.3);
+      color: #e0e0e0; padding: 10px 12px; margin: 5px 0; cursor: pointer;
+      border-radius: 6px; width: 100%; font-weight: 500; font-size: 13px;
+      transition: all 0.2s ease;
+    }}
+    .cycle-btn:hover {{ background: rgba(124, 58, 237, 0.25); }}
+    .cycle-btn.active {{ background: rgba(124, 58, 237, 0.35); border-color: rgba(124, 58, 237, 0.6); }}
+    .cycle-btn .toggle-label {{ display: flex; align-items: center; gap: 6px; }}
+    .cycle-dots {{ display: flex; gap: 6px; align-items: center; flex-shrink: 0; }}
+    .cycle-dot {{
+      width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent;
+      transition: all 0.2s ease; opacity: 0.4;
+    }}
+    .cycle-dot.dot-off {{ background: #808080; }}
+    .cycle-dot.dot-color {{ background: linear-gradient(135deg, #ff6b6b, #4ecdc4, #ffe66d); }}
+    .cycle-dot.dot-white {{ background: #ffffff; }}
+    .cycle-dot.current {{ opacity: 1; border-color: #a78bfa; transform: scale(1.15); box-shadow: 0 0 8px rgba(167, 139, 250, 0.5); }}
     .mesh-toggle {{
       display: flex; align-items: center; margin: 8px 0; padding: 8px;
       background: rgba(124, 58, 237, 0.1); border-radius: 6px; transition: background 0.2s;
@@ -494,10 +535,26 @@ def generate_html_with_textures(mdl_path: Path, meshes: list, material_texture_m
     <h4>🎮 Controls</h4>
     <button onclick="toggleAllMeshes(true)">✅ Show All</button>
     <button onclick="toggleAllMeshes(false)">❌ Hide All</button>
-    <button onclick="toggleColors()">🎨 Toggle Colors</button>
-    <button onclick="toggleTextures()">🖼️ Toggle Textures</button>
-    <button onclick="toggleWireframe()">📐 Wireframe Only</button>
-    <button onclick="toggleWireframeOverlay()">🔲 Wireframe Overlay</button>
+    <div class="cycle-btn" id="btn-colors" onclick="toggleColors()">
+      <span class="toggle-label">🎨 Colors</span>
+      <span class="cycle-dots">
+        <span class="cycle-dot dot-off current" title="Off (gray)"></span>
+        <span class="cycle-dot dot-color" title="Per-mesh colors"></span>
+        <span class="cycle-dot dot-white" title="White"></span>
+      </span>
+    </div>
+    <div class="toggle-btn active" id="btn-textures" onclick="toggleTextures()">
+      <span class="toggle-label">🖼️ Toggle Textures</span>
+      <span class="toggle-indicator"></span>
+    </div>
+    <div class="toggle-btn" id="btn-wireframe" onclick="toggleWireframe()">
+      <span class="toggle-label">📐 Wireframe Only</span>
+      <span class="toggle-indicator"></span>
+    </div>
+    <div class="toggle-btn" id="btn-wireframe-overlay" onclick="toggleWireframeOverlay()">
+      <span class="toggle-label">🔲 Wireframe Overlay</span>
+      <span class="toggle-indicator"></span>
+    </div>
     <button onclick="resetCamera()">🎯 Reset Camera</button>
     <button onclick="takeScreenshot()">📷 Screenshot</button>
     <h4>👁️ Meshes</h4>
@@ -864,10 +921,32 @@ def generate_html_with_textures(mdl_path: Path, meshes: list, material_texture_m
       updateStats();
     }}
 
+    function updateColorDots() {{
+      const dots = document.querySelectorAll('#btn-colors .cycle-dot');
+      dots.forEach((dot, i) => {{
+        dot.classList.toggle('current', i === colorMode);
+      }});
+      document.getElementById('btn-colors').classList.toggle('active', colorMode !== 0);
+    }}
+
     function toggleColors() {{
       colorMode = (colorMode + 1) % 3;
+      updateColorDots();
+
+      // Colors going ON → disable textures if they're on
+      if (colorMode === 1 && texturesEnabled) {{
+        texturesEnabled = false;
+        document.getElementById('btn-textures').classList.remove('active');
+        meshes.forEach(mesh => {{
+          if (mesh.userData.hasTexture) {{
+            mesh.material.map = null;
+            mesh.material.normalMap = null;
+            mesh.material.needsUpdate = true;
+          }}
+        }});
+      }}
+      // Apply color mode to all meshes
       meshes.forEach(mesh => {{
-        if (mesh.material.map && texturesEnabled) return;
         if (colorMode === 0) mesh.material.color.set(0x808080);
         else if (colorMode === 1) mesh.material.color.setHex(mesh.userData.originalColor);
         else mesh.material.color.set(0xffffff);
@@ -876,23 +955,24 @@ def generate_html_with_textures(mdl_path: Path, meshes: list, material_texture_m
 
     function toggleTextures() {{
       texturesEnabled = !texturesEnabled;
+      document.getElementById('btn-textures').classList.toggle('active', texturesEnabled);
+
+      // Textures ON → reset colors to OFF
+      if (texturesEnabled && colorMode !== 0) {{
+        colorMode = 0;
+        updateColorDots();
+      }}
+
       meshes.forEach(mesh => {{
         if (mesh.userData.hasTexture) {{
           if (texturesEnabled) {{
-            // Zapnout textury - obnovit originální
-            if (mesh.userData.originalMap) {{
-              mesh.material.map = mesh.userData.originalMap;
-            }}
-            if (mesh.userData.originalNormalMap) {{
-              mesh.material.normalMap = mesh.userData.originalNormalMap;
-            }}
-            // DŮLEŽITÉ: Resetovat barvu na bílou když jsou textury zapnuté
+            if (mesh.userData.originalMap) mesh.material.map = mesh.userData.originalMap;
+            if (mesh.userData.originalNormalMap) mesh.material.normalMap = mesh.userData.originalNormalMap;
             mesh.material.color.set(0xffffff);
           }} else {{
-            // Vypnout textury - zobrazit barvu
             mesh.material.map = null;
             mesh.material.normalMap = null;
-            mesh.material.color.setHex(mesh.userData.originalColor);
+            mesh.material.color.set(0x808080);
           }}
           mesh.material.needsUpdate = true;
         }}
@@ -900,14 +980,27 @@ def generate_html_with_textures(mdl_path: Path, meshes: list, material_texture_m
     }}
 
     function toggleWireframe() {{
+      // If overlay is active, turn it off first
+      if (wireframeOverlayMode) {{
+        wireframeOverlayMode = false;
+        document.getElementById('btn-wireframe-overlay').classList.remove('active');
+        wireframeMeshes.forEach(wf => wf.parent.remove(wf));
+        wireframeMeshes = [];
+      }}
       wireframeMode = !wireframeMode;
+      document.getElementById('btn-wireframe').classList.toggle('active', wireframeMode);
       meshes.forEach(mesh => mesh.material.wireframe = wireframeMode);
-      if (wireframeOverlayMode) toggleWireframeOverlay();
     }}
 
     function toggleWireframeOverlay() {{
+      // If wireframe is active, turn it off first
+      if (wireframeMode) {{
+        wireframeMode = false;
+        document.getElementById('btn-wireframe').classList.remove('active');
+        meshes.forEach(mesh => mesh.material.wireframe = false);
+      }}
       wireframeOverlayMode = !wireframeOverlayMode;
-      if (wireframeOverlayMode && wireframeMode) toggleWireframe();
+      document.getElementById('btn-wireframe-overlay').classList.toggle('active', wireframeOverlayMode);
       
       if (wireframeOverlayMode) {{
         meshes.forEach(mesh => {{
@@ -924,6 +1017,24 @@ def generate_html_with_textures(mdl_path: Path, meshes: list, material_texture_m
     }}
 
     function resetCamera() {{
+      // Reset toggle states to defaults
+      // Reset wireframe overlay first (removes overlay meshes)
+      if (wireframeOverlayMode) toggleWireframeOverlay();
+      // Reset wireframe mode
+      if (wireframeMode) toggleWireframe();
+      // Reset colors to default (OFF, colorMode=0)
+      if (colorMode !== 0) {{
+        colorMode = 0;
+        updateColorDots();
+        meshes.forEach(mesh => {{
+          if (!(mesh.material.map && texturesEnabled)) {{
+            mesh.material.color.set(0x808080);
+          }}
+        }});
+      }}
+      // Reset textures to ON
+      if (!texturesEnabled) toggleTextures();
+
       const box = new THREE.Box3();
       meshes.forEach(m => box.expandByObject(m));
       const center = box.getCenter(new THREE.Vector3());
