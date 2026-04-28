@@ -45,9 +45,11 @@ Requires: blowfish, zstandard, xxhash, numpy   (and optionally colorama)
 # Unified imports for both the embedded library code and the wrapper code.
 # ---------------------------------------------------------------------------
 import argparse
+import glob
 import io
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -59,6 +61,7 @@ from itertools import chain
 # Hard dependencies of the embedded library code.
 try:
     import blowfish
+    import lz4.block
     import numpy
     import operator
     import xxhash
@@ -66,7 +69,7 @@ try:
 except ImportError as e:
     sys.stderr.write(
         "ERROR: missing required Python module: {}\n"
-        "Install with:  py -m pip install blowfish zstandard xxhash numpy\n".format(e)
+        "Install with:  py -m pip install blowfish zstandard xxhash numpy lz4\n".format(e)
     )
     sys.exit(2)
 
@@ -1865,6 +1868,190 @@ def process_mdl_import (mdl_file, change_compression = False, force_kuro_version
         f.write(new_mdl_data)
 
 
+# === /mnt/user-data/uploads/p3a_lib.py ===
+# Script with functions to manipulate a P3A archive.
+#
+# GitHub eArmada8/kuro_dlc_tool
+
+
+class p3a_class:
+    def __init__ (self):
+        self.f = None
+
+    def read_entry (self, version):
+        entry = {}
+        entry['name'] = self.f.read(0x100).split(b'\x00')[0].decode('utf-8')
+        entry['cmp_type'], entry['cmp_size'], entry['unc_size'], entry['offset']\
+            = struct.unpack("<4Q", self.f.read(32))
+        entry['cmp_hash'], = list(struct.unpack("Q", self.f.read(8)))
+        if version >= 1200:
+            entry['unc_hash'], = list(struct.unpack("Q", self.f.read(8)))
+        return(entry)
+
+    def read_dict (self):
+        magic = self.f.read(8)
+        if magic == b'P3ADICT\x00':
+            dict_size, = struct.unpack("<Q", self.f.read(8))
+            return(self.f.read(dict_size))
+        else:
+            return b''
+
+    def read_p3a_toc (self):
+        self.f.seek(0)
+        magic = self.f.read(8)
+        if magic == b'PH3ARCV\x00':
+            header = {}
+            header['flags'], header['version'], header['num_files'], header['p3a_hash']\
+                = struct.unpack("<2I2Q", self.f.read(24))
+            if header['version'] >= 1200:
+                header['p3a_hash_2'], header['ext_header_size'], header['entry_size']\
+                    = struct.unpack("<Q2I", self.f.read(16))
+            entries = [self.read_entry(header['version']) for i in range(header['num_files'])]
+            if header['flags'] & 1 == 1:
+                p3a_dict = zstandard.ZstdCompressionDict(self.read_dict())
+            else:
+                p3a_dict = None
+            return(header, entries, p3a_dict)
+        else:
+            input("Not P3A! Press Enter to continue")
+            return []
+
+    def read_file (self, entry, p3a_dict):
+        self.f.seek(entry['offset'])
+        cmp_data = self.f.read(entry['cmp_size'])
+        if not xxhash.xxh64_intdigest(cmp_data) == entry['cmp_hash']:
+            input("{} is corrupt, skipping.  Press Enter to continue.".format(entry['name']))
+            return(b'')
+        if entry['cmp_type'] == 0:
+            unc_data = cmp_data
+        elif entry['cmp_type'] == 1:
+            unc_data = lz4.block.decompress(cmp_data, entry['unc_size'])
+        elif entry['cmp_type'] == 2:
+            decompressor = zstandard.ZstdDecompressor()
+            unc_data = decompressor.decompress(cmp_data)
+        elif entry['cmp_type'] == 3:
+            decompressor = zstandard.ZstdDecompressor(dict_data = p3a_dict)
+            unc_data = decompressor.decompress(cmp_data)
+        else:
+            input("{0} is unknown compression (type {1}), skipping.  Press Enter to continue.".format(entry['name'],
+                entry['cmp_type']))
+            unc_data = b''
+        if len(unc_data) > 0 and 'unc_hash' in entry:
+            if not xxhash.xxh64_intdigest(unc_data) == entry['unc_hash']:
+                input("{} is corrupt, skipping.  Press Enter to continue.".format(entry['name']))
+                return(b'')
+        return(unc_data)
+
+    # assigned_paths are specific names for each file, and are optional.
+    # The key should match the file in file_list, and the value is the new name.
+    # For example, if '/path/to/file1' is in file_list, then assigned_path could have
+    # a key:value of '/path/to/file1':'/different/path/to/file2', and '/path/to/file1'
+    # will be stored in the p3a as '/different/path/to/file2'.
+    def p3a_pack_files (self, file_list, assigned_paths = {}, cmp_type = 1, p3a_ver = 1100):
+        def return_256_len_str(string):
+            assert len(string) <= 256
+            return(string.encode('utf-8') + b'\x00'*(256-len(string)))
+        p3a_flags = 0
+        header_length = ({1100: 32, 1200: 48}[p3a_ver]
+            + {1100: 296, 1200: 304}[p3a_ver] * len(file_list))
+        file_data = []
+        if cmp_type == 2:
+            zstd_compressor = zstandard.ZstdCompressor(level = 12, write_checksum = True)
+        if cmp_type == 3:
+            p3a_flags = p3a_flags | 1
+            dict_size = 112640
+            print("Generating dictionary...")
+            samples = [open(file, 'rb').read() for file in file_list]
+            zdict = zstandard.train_dictionary(dict_size, samples)
+            header_length += len(zdict.as_bytes()) + 16
+            zstd_compressor = zstandard.ZstdCompressor(level = 12, dict_data = zdict, write_checksum = True)
+        header_length = math.ceil(header_length / 64) * 64
+        print("Compressing files...")
+        with io.BytesIO() as f:
+            toc = []
+            for i in range(len(file_list)):
+                with open(file_list[i], 'rb') as f2:
+                    unc_data = f2.read()
+                if cmp_type == 0:
+                    cmp_data = unc_data
+                elif cmp_type == 1:
+                    cmp_data = lz4.block.compress(unc_data, mode = 'high_compression', store_size=False)
+                elif cmp_type in [2,3]:
+                    cmp_data = zstd_compressor.compress(unc_data)
+                if file_list[i] in assigned_paths:
+                    file_path = assigned_paths[file_list[i]]
+                    file_path = "".join([x if x not in ":*?<>|" else "_" for x in file_path]) #Sanitize
+                else:
+                    file_path = file_list[i]
+                file_entry = {'name': file_path, 'cmp_type': cmp_type, 'cmp_size': len(cmp_data),
+                    'unc_size': len(unc_data), 'offset': f.tell() + header_length,
+                    'cmp_hash': xxhash.xxh64_intdigest(cmp_data), 'unc_hash': xxhash.xxh64_intdigest(unc_data)}
+                f.write(cmp_data)
+                file_data.append(file_entry)
+                if i < len(file_list) - 1:
+                    while f.tell() % 64 > 0: #64-byte alignment
+                        f.write(b'\x00')
+            f.seek(0)
+            file_block = f.read()
+        header = b'PH3ARCV\x00' + struct.pack("<2IQ", p3a_flags, p3a_ver, len(file_list))
+        header += struct.pack("<Q", xxhash.xxh64_intdigest(header))
+        if p3a_ver >= 1200:
+            ext_header = struct.pack("<2I", 16, {1200: 304}[p3a_ver])
+            header += struct.pack("<Q", xxhash.xxh64_intdigest(ext_header)) + ext_header
+        for i in range(len(file_data)):
+            file_entry_block = return_256_len_str(file_data[i]['name'].lower()) # All file names in P3A are lower case
+            file_entry_block += struct.pack("<5Q", file_data[i]['cmp_type'], file_data[i]['cmp_size'],
+                file_data[i]['unc_size'], file_data[i]['offset'], file_data[i]['cmp_hash'])
+            if p3a_ver >= 1200:
+                file_entry_block += struct.pack("<Q", file_data[i]['unc_hash'])
+            header += file_entry_block
+        if cmp_type == 3:
+            header += b'P3ADICT\x00' + struct.pack("<Q", len(zdict.as_bytes())) + zdict.as_bytes()
+        if len(header) % 64 > 0: #64-byte alignment
+            header += b''.join([b'\x00']*(64-(len(header) % 64)))
+        return(header + file_block)
+
+    def extract_all_files (self, p3a_archive, output_dir = None, overwrite = False):
+        with open(p3a_archive,'rb') as self.f:
+            headers, entries, p3a_dict = self.read_p3a_toc()
+            if output_dir == None:
+                output_dir = p3a_archive[:-4]
+            for i in range(len(entries)):
+                file_data = self.read_file(entries[i], p3a_dict)
+                if len(file_data) > 0:
+                    overwrite_files = overwrite
+                    if os.path.exists(output_dir + '/' + entries[i]['name']) and (overwrite == False):
+                        if str(input(output_dir + '/' + entries[i]['name'] + " exists! Overwrite? (y/N) ")).lower()[0:1] == 'y':
+                            overwrite_files = True
+                    if not os.path.exists(output_dir + '/' + entries[i]['name']) or overwrite_files == True:
+                        if not os.path.exists(output_dir + '/' + os.path.dirname(entries[i]['name'])):
+                            os.makedirs(output_dir + '/' + os.path.dirname(entries[i]['name']))
+                        with open(output_dir + '/' + entries[i]['name'], 'wb') as f2:
+                            f2.write(file_data)
+        return
+
+    # if output_name is None, then the name of the folder will be used.
+    def pack_folder (self, folder_name, output_name = None, overwrite = False, cmp_type = 1, p3a_ver = 1100):
+        if output_name == None:
+            p3a_name = folder_name + '.p3a'
+        else:
+            p3a_name = "".join([x if x not in "\\/:*?<>|" else "_" for x in output_name]) #Sanitize
+            if not p3a_name.lower()[-4:] == '.p3a':
+                p3a_name = p3a_name + '.p3a'
+        if os.path.exists(p3a_name) and overwrite == False:
+            if str(input(p3a_name + " exists! Overwrite? (y/N) ")).lower()[0:1] == 'y':
+                overwrite = True
+        if (overwrite == True) or not os.path.exists(p3a_name):
+            file_list = [x.replace('\\','/') for x in glob.glob('**/*',root_dir=folder_name,recursive=True)
+                if not os.path.isdir(folder_name+'/'+x)]
+            assigned_paths = {folder_name+'/'+x:x for x in file_list}
+            p3a_data = self.p3a_pack_files (list(assigned_paths.keys()), assigned_paths,
+                cmp_type = cmp_type, p3a_ver = p3a_ver)
+            with open(p3a_name, 'wb') as f:
+                f.write(p3a_data)
+        return
+
+
 
 # ===========================================================================
 # END EMBEDDED LIBRARY CODE
@@ -1967,6 +2154,76 @@ class _PrintInterceptor:
 # ---------------------------------------------------------------------------
 # Project discovery
 # ---------------------------------------------------------------------------
+def _is_p3a_file(path):
+    """Return True iff `path` is an existing file with a .p3a extension."""
+    return os.path.isfile(path) and path.lower().endswith(".p3a")
+
+
+def extract_p3a_archive(p3a_path, target_dir):
+    """Extract `p3a_path` into `target_dir`. Creates target_dir if missing.
+    Uses the embedded p3a_class. Verbose output is captured by the print
+    interceptor and routed to LOG.debug."""
+    os.makedirs(target_dir, exist_ok=True)
+    old_stdout = sys.stdout
+    try:
+        sys.stdout = _PrintInterceptor(old_stdout)
+        archive = p3a_class()
+        archive.extract_all_files(p3a_path, output_dir=target_dir, overwrite=True)
+    finally:
+        sys.stdout = old_stdout
+
+
+def pack_directory_to_p3a(dir_path, p3a_path, cmp_type=1, p3a_ver=1100):
+    """Pack the contents of `dir_path` into a P3A archive at `p3a_path`.
+    cmp_type: 0=none, 1=lz4, 2=zstd, 3=zstd-dict. p3a_ver: 1100 or 1200.
+
+    Workaround: p3a_class.pack_folder() sanitises the output_name by
+    replacing slashes with underscores, which mangles absolute paths. To
+    avoid this we chdir into the parent of dir_path, call pack_folder with
+    only the basename, then move the resulting archive to its real target
+    location if necessary."""
+    abs_dir = os.path.abspath(dir_path)
+    abs_p3a = os.path.abspath(p3a_path)
+    parent_of_dir = os.path.dirname(abs_dir)
+    folder_basename = os.path.basename(abs_dir)
+    target_basename = os.path.basename(abs_p3a)
+
+    # Cleanup any pre-existing artefact at the FINAL destination AND at the
+    # path pack_folder will write to (in parent_of_dir/target_basename).
+    if os.path.exists(abs_p3a):
+        os.remove(abs_p3a)
+    pack_intermediate = os.path.join(parent_of_dir, target_basename)
+    if os.path.exists(pack_intermediate) and pack_intermediate != abs_p3a:
+        os.remove(pack_intermediate)
+
+    os.makedirs(os.path.dirname(abs_p3a) or ".", exist_ok=True)
+
+    old_cwd = os.getcwd()
+    old_stdout = sys.stdout
+    try:
+        sys.stdout = _PrintInterceptor(old_stdout)
+        os.chdir(parent_of_dir)
+        archive = p3a_class()
+        archive.pack_folder(
+            folder_basename,
+            output_name=target_basename,
+            overwrite=True,
+            cmp_type=cmp_type,
+            p3a_ver=p3a_ver,
+        )
+    finally:
+        sys.stdout = old_stdout
+        os.chdir(old_cwd)
+
+    # Move from <parent_of_dir>/<target_basename> to abs_p3a, but only if
+    # the two paths differ (when the workdir lives in the same directory as
+    # the target archive, no move is needed).
+    if os.path.normcase(os.path.abspath(pack_intermediate)) != os.path.normcase(abs_p3a):
+        if os.path.exists(abs_p3a):
+            os.remove(abs_p3a)
+        shutil.move(pack_intermediate, abs_p3a)
+
+
 def resolve_project_root(user_path):
     """Resolve `user_path` to a project root that contains an `asset/` folder.
 
@@ -1978,6 +2235,8 @@ def resolve_project_root(user_path):
       - A folder that has exactly one nested subfolder which itself contains
         `asset/` (the common zip-extraction layout `proj/proj/asset/...`).
       - The current working directory (when called with `.` or no argument).
+      - A .p3a archive -- handled separately by the caller (this function
+        rejects it; see _is_p3a_file).
 
     Returns (resolved_root, info_message) so the caller can log the chosen
     root after logging is set up. info_message is "" when the input was
@@ -2517,6 +2776,12 @@ def parse_args(argv=None):
         description=(
             "Produce a renamed copy of a Kuro no Kiseki / ED9 mdl asset project.\n"
             "\n"
+            "Source can be either a directory tree (the layout under <project>\n"
+            "with asset/common/model/, asset/dx11/image/, etc.) OR a .p3a\n"
+            "archive (it is auto-detected by extension and extracted to a\n"
+            "temporary working directory). Output can be either a directory\n"
+            "tree (default) or a .p3a archive (--p3a).\n"
+            "\n"
             "For every .mdl found under <project>/asset/common/model/, the\n"
             "script:\n"
             "  1. Picks a new name for the mdl (prefix/suffix, or a name you\n"
@@ -2552,6 +2817,12 @@ def parse_args(argv=None):
             "\n"
             "Per-mdl interactive rename (each mdl asks for a new name):\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --rename\n"
+            "\n"
+            "P3A in / P3A out (extract source archive, repack output):\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW.p3a --p3a --apply\n"
+            "\n"
+            "Directory in / P3A out (existing project, archive output):\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --p3a --apply\n"
             "\n"
             "Fully non-interactive run (CI / scripts; no prompts at all):\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --non-interactive --apply --prefix mod_\n"
@@ -2604,6 +2875,17 @@ def parse_args(argv=None):
                         "unreferenced images, files in other folders under the project, etc. "
                         "Default: no -- only the renamed mdls, .mi side-cars and per-mdl "
                         "renamed image copies appear in the output.")
+    p.add_argument("--p3a", action="store_true", default=None,
+                   help="Pack the output as a P3A archive (.p3a) instead of (or in addition "
+                        "to) a directory tree. The intermediate directory is built and then "
+                        "packed; with --p3a it is removed afterwards. Source can also be a "
+                        ".p3a file -- it is auto-detected and extracted on the fly.")
+    p.add_argument("--p3a-compression", default=None,
+                   choices=["none", "lz4", "zstd", "zstd-dict"],
+                   help="Compression algorithm for P3A output (default: 'lz4').")
+    p.add_argument("--p3a-version", default=None,
+                   choices=["1100", "1200"],
+                   help="P3A format version for output (default: '1100').")
     p.add_argument("--rename", action="store_true",
                    help="Per-mdl interactive rename. Ignores --prefix/--suffix and prompts "
                         "for every .mdl's new basename. You may keep the original name by "
@@ -2628,6 +2910,10 @@ def parse_args(argv=None):
 def _default_output_dir(project_path):
     parent = os.path.dirname(os.path.abspath(project_path))
     name = os.path.basename(os.path.abspath(project_path).rstrip(os.sep))
+    # If the input was a .p3a archive, drop the extension so the default
+    # output dir is "<base>_modded" rather than "<base>.p3a_modded".
+    if name.lower().endswith(".p3a"):
+        name = name[:-4]
     return os.path.join(parent, name + "_modded")
 
 
@@ -2667,21 +2953,32 @@ def _interactive_collect_prefix_suffix(prefix_default, suffix_default):
         prefix_default, suffix_default = prefix or prefix_default, suffix or suffix_default
 
 
-def _interactive_collect_output_apply(default_output, current_apply, current_keep):
-    """Prompt for the output directory, the keep-unprocessed-files flag and
-    the apply confirmation. Returns (output, apply, keep)."""
-    output = prompt_with_default("Output directory: ", default_output)
+def _interactive_collect_output_apply(default_dir_output, default_p3a_output,
+                                       current_apply, current_keep, current_p3a):
+    """Prompt for the output mode (dir vs p3a), the output path, the keep
+    flag and the apply confirmation. Returns (output, apply, keep, p3a)."""
+    p3a_out = prompt_yes_no(
+        "Pack output as a P3A archive (instead of a directory tree)? "
+        "(default no): ",
+        default=bool(current_p3a),
+    )
+    if p3a_out:
+        output = prompt_with_default("Output P3A archive path: ", default_p3a_output)
+        if not output.lower().endswith(".p3a"):
+            output = output + ".p3a"
+    else:
+        output = prompt_with_default("Output directory: ", default_dir_output)
     keep = prompt_yes_no(
         "Copy all unprocessed source files (unreferenced images and any other "
         "non-renamed files) verbatim into the output? (default no): ",
         default=bool(current_keep),
     )
     if current_apply:
-        return output, True, keep
+        return output, True, keep, p3a_out
     apply_now = prompt_yes_no(
         "Apply changes now? (default no = dry-run only): ", default=False
     )
-    return output, apply_now, keep
+    return output, apply_now, keep, p3a_out
 
 
 def _interactive_rename_each(plans):
@@ -2750,6 +3047,10 @@ def _script_dir():
 
 
 def main(argv=None):
+    """Top-level entry: parses args, optionally extracts a P3A source, and
+    delegates to _run_main(). The try/finally ensures any transient
+    extraction directory is removed on every exit path (success, error, or
+    Ctrl+C)."""
     args = parse_args(argv)
 
     if args.rename and args.non_interactive:
@@ -2759,6 +3060,120 @@ def main(argv=None):
         )
         return 2
 
+    # ---- Step 0: P3A INPUT? Auto-detect and extract on the fly. -----------
+    src_p3a_path = None  # original .p3a, if input was an archive
+    src_extract_dir = None  # transient working dir holding the extracted files
+    user_path_abs = os.path.abspath(args.project)
+
+    # Build a candidate list for the user-supplied directory:
+    #   - 'dir' candidate: the directory itself, when it has an asset/ inside.
+    #   - 'p3a' candidate: every .p3a file directly inside the directory.
+    # 0 candidates --> fall through to the existing "no asset/" error path.
+    # 1 candidate  --> use it silently.
+    # 2+ candidates --> interactive numbered picker (or error in batch mode).
+    if os.path.isdir(user_path_abs):
+        has_asset = os.path.isdir(os.path.join(user_path_abs, "asset"))
+        p3a_candidates = sorted(
+            glob.glob(os.path.join(user_path_abs, "*.p3a"))
+            + glob.glob(os.path.join(user_path_abs, "*.P3A"))
+        )
+        seen = set()
+        p3a_candidates = [p for p in p3a_candidates
+                          if not (p.lower() in seen or seen.add(p.lower()))]
+
+        candidates = []
+        if has_asset:
+            candidates.append(("dir", user_path_abs))
+        for p in p3a_candidates:
+            candidates.append(("p3a", p))
+
+        if len(candidates) == 1:
+            kind, path = candidates[0]
+            if kind == "p3a":
+                user_path_abs = path
+                args.project = path
+                sys.stdout.write(
+                    "Found a P3A archive in {}: using {}\n".format(
+                        os.path.dirname(path), os.path.basename(path))
+                )
+            # kind == 'dir' -> user_path_abs already set; nothing to do.
+        elif len(candidates) >= 2:
+            interactive = not args.non_interactive
+            if not interactive:
+                sys.stderr.write(
+                    "ERROR: multiple possible sources found in {}.\n"
+                    "Specify one explicitly on the command line:\n".format(user_path_abs))
+                for kind, path in candidates:
+                    if kind == "dir":
+                        sys.stderr.write(
+                            "    {}     (extracted project tree)\n".format(path))
+                    else:
+                        sys.stderr.write(
+                            "    {}     (P3A archive)\n".format(path))
+                return 1
+            # Interactive picker.
+            sys.stdout.write(
+                "Multiple possible sources found in {}:\n".format(user_path_abs))
+            for i, (kind, path) in enumerate(candidates, 1):
+                if kind == "dir":
+                    sys.stdout.write(
+                        "  [{}] use the extracted project tree (asset/ here)\n".format(i))
+                else:
+                    size_mb = os.path.getsize(path) / (1024 * 1024)
+                    sys.stdout.write(
+                        "  [{}] {}     ({:.1f} MB P3A archive)\n".format(
+                            i, os.path.basename(path), size_mb))
+            while True:
+                try:
+                    choice = _real_input(
+                        "Pick one to process (1-{}, or just press Enter to abort): ".format(
+                            len(candidates))).strip()
+                except (KeyboardInterrupt, EOFError):
+                    sys.stderr.write("\nCancelled.\n")
+                    return 130
+                if choice == "":
+                    sys.stderr.write("Aborted.\n")
+                    return 1
+                try:
+                    idx = int(choice)
+                    if 1 <= idx <= len(candidates):
+                        kind, path = candidates[idx - 1]
+                        if kind == "p3a":
+                            user_path_abs = path
+                            args.project = path
+                        # else kind == 'dir' -> user_path_abs already set
+                        break
+                except ValueError:
+                    pass
+                sys.stdout.write("  Invalid choice. Try again.\n")
+
+    if _is_p3a_file(user_path_abs):
+        src_p3a_path = user_path_abs
+        base = os.path.splitext(os.path.basename(src_p3a_path))[0]
+        src_extract_dir = os.path.join(
+            _script_dir(), "_kuro_mdl_rename_p3a_in_" + base)
+        sys.stdout.write(
+            "Source is a P3A archive: extracting to {} ...\n".format(src_extract_dir)
+        )
+        if os.path.exists(src_extract_dir):
+            shutil.rmtree(src_extract_dir, ignore_errors=True)
+        try:
+            extract_p3a_archive(src_p3a_path, src_extract_dir)
+        except Exception as e:
+            sys.stderr.write("ERROR: failed to extract source P3A: {}\n".format(e))
+            shutil.rmtree(src_extract_dir, ignore_errors=True)
+            return 1
+        args.project = src_extract_dir
+
+    try:
+        return _run_main(args, src_p3a_path, src_extract_dir)
+    finally:
+        # Always clean up the transient P3A extraction directory.
+        if src_extract_dir and os.path.exists(src_extract_dir):
+            shutil.rmtree(src_extract_dir, ignore_errors=True)
+
+
+def _run_main(args, src_p3a_path, src_extract_dir):
     interactive = not args.non_interactive
     src_project, resolve_note = resolve_project_root(args.project)
 
@@ -2806,25 +3221,59 @@ def main(argv=None):
             sys.stderr.write("\nCancelled.\n")
             return 130
 
-    # ---- Step 4: output dir + apply confirmation -------------------------
+    # ---- Step 4: output destination + apply confirmation -----------------
+    # Defaults for the output path differ depending on whether the user is
+    # producing a directory or a P3A archive.
+    def _default_p3a_output(src_root, src_p3a):
+        # If source was a P3A, place output next to it. Else next to source dir.
+        if src_p3a:
+            parent = os.path.dirname(os.path.abspath(src_p3a))
+            base = os.path.splitext(os.path.basename(src_p3a))[0]
+            return os.path.join(parent, base + "_modded.p3a")
+        parent = os.path.dirname(os.path.abspath(src_root))
+        base = os.path.basename(os.path.abspath(src_root).rstrip(os.sep))
+        return os.path.join(parent, base + "_modded.p3a")
+
     if interactive:
         try:
-            default_output = args.output or _default_output_dir(src_project)
-            args.output, args.apply, args.keep = _interactive_collect_output_apply(
-                default_output, bool(args.apply), bool(args.keep)
+            default_dir_out = args.output or _default_output_dir(src_p3a_path or src_project)
+            default_p3a_out = (args.output if args.output and args.output.lower().endswith(".p3a")
+                               else _default_p3a_output(src_project, src_p3a_path))
+            args.output, args.apply, args.keep, args.p3a = _interactive_collect_output_apply(
+                default_dir_out, default_p3a_out,
+                bool(args.apply), bool(args.keep), bool(args.p3a),
             )
         except (KeyboardInterrupt, EOFError):
             sys.stderr.write("\nCancelled.\n")
             return 130
     else:
-        if args.output is None:
-            args.output = _default_output_dir(src_project)
         if args.apply is None:
             args.apply = False  # default = dry-run
         if args.keep is None:
             args.keep = False  # default = no verbatim copy of unprocessed files
+        if args.p3a is None:
+            args.p3a = False
+        if args.output is None:
+            args.output = (_default_p3a_output(src_project, src_p3a_path)
+                           if args.p3a else _default_output_dir(src_p3a_path or src_project))
 
-    out_project = os.path.abspath(args.output)
+    # P3A compression / version defaults (used only when args.p3a is True).
+    if args.p3a_compression is None:
+        args.p3a_compression = "lz4"
+    if args.p3a_version is None:
+        args.p3a_version = "1100"
+
+    # When packing a P3A, the user-supplied "output" is the .p3a file;
+    # internally we still build a working directory, then pack it, then
+    # remove the working directory.
+    if args.p3a:
+        final_p3a_path = os.path.abspath(args.output)
+        if not final_p3a_path.lower().endswith(".p3a"):
+            final_p3a_path = final_p3a_path + ".p3a"
+        out_project = final_p3a_path + "_workdir"
+    else:
+        final_p3a_path = None
+        out_project = os.path.abspath(args.output)
 
     # ---- Step 5: set up logging (log file lives next to this script) ------
     log_path = args.log or os.path.join(_script_dir(), "kuro_mdl_rename.log")
@@ -2836,8 +3285,19 @@ def main(argv=None):
     LOG.info("Mode               : %s%s",
              _green("APPLY") if args.apply else _cyan("DRY-RUN"),
              _dim("  (--non-interactive)") if not interactive else "")
-    LOG.info("Source project     : %s", _cyan(src_project))
-    LOG.info("Output project     : %s", _cyan(out_project))
+    if src_p3a_path:
+        LOG.info("Source             : %s %s",
+                 _cyan(src_p3a_path), _dim("(P3A archive, extracted to scratch)"))
+    else:
+        LOG.info("Source project     : %s", _cyan(src_project))
+    if args.p3a:
+        LOG.info("Output             : %s %s",
+                 _cyan(final_p3a_path), _dim("(P3A archive)"))
+        LOG.info("  P3A compression  : %s", _green(args.p3a_compression))
+        LOG.info("  P3A version      : %s", _green(args.p3a_version))
+        LOG.info("  working directory: %s", _dim(out_project))
+    else:
+        LOG.info("Output project     : %s", _cyan(out_project))
     if args.rename:
         LOG.info("Naming             : %s", _bold("per-mdl interactive (--rename)"))
     else:
@@ -2850,7 +3310,11 @@ def main(argv=None):
     LOG.info("Discovered %s image file(s) in %s.",
              _bold(str(len(image_index))), _dim(src_image_dir))
 
-    if os.path.abspath(out_project) == os.path.abspath(src_project):
+    # Sanity: refuse to write into the source directory. (For P3A input the
+    # extracted source lives in a scratch dir, so this only fires for
+    # directory-input runs where the user really pointed output back at the
+    # source.)
+    if not src_p3a_path and os.path.abspath(out_project) == os.path.abspath(src_project):
         LOG.error("Output path is the same as the source path. Aborting to protect source data.")
         return 2
 
@@ -2875,8 +3339,14 @@ def main(argv=None):
 
     if not args.apply:
         LOG.info("")
-        LOG.info(_cyan(_bold("Dry-run complete.")) + " Re-run with " + _bold("--apply")
-                 + " (or answer " + _bold("'yes'") + " to the apply prompt) to write the new project.")
+        if args.p3a:
+            LOG.info("%s Re-run with %s (or answer %s) to write the P3A archive: %s",
+                     _cyan(_bold("Dry-run complete.")),
+                     _bold("--apply"), _bold("'yes'"),
+                     _cyan(final_p3a_path))
+        else:
+            LOG.info(_cyan(_bold("Dry-run complete.")) + " Re-run with " + _bold("--apply")
+                     + " (or answer " + _bold("'yes'") + " to the apply prompt) to write the new project.")
         return 0
 
     if os.path.exists(out_project) and os.listdir(out_project):
@@ -2915,13 +3385,54 @@ def main(argv=None):
             LOG.exception("[keep] FAILED: %s", e)
             failures += 1
 
+    # --p3a OUTPUT: pack the working directory into a P3A archive, then
+    # remove the working directory. Skipped on dry-run, skipped on failure.
+    cmp_map = {"none": 0, "lz4": 1, "zstd": 2, "zstd-dict": 3}
+    if args.p3a and args.apply and failures == 0:
+        LOG.info("")
+        LOG.info(_bold(_magenta("=" * 8 + " PACK: building P3A archive " + "=" * 35)))
+        LOG.info("[pack] source workdir : %s", _dim(out_project))
+        LOG.info("[pack] target archive : %s", _cyan(final_p3a_path))
+        LOG.info("[pack] compression    : %s", _green(args.p3a_compression))
+        LOG.info("[pack] format version : %s", _green(args.p3a_version))
+        try:
+            pack_directory_to_p3a(
+                out_project,
+                final_p3a_path,
+                cmp_type=cmp_map[args.p3a_compression],
+                p3a_ver=int(args.p3a_version),
+            )
+            LOG.info("[pack] %s -> %s",
+                     _bold(_green("OK")), _cyan(final_p3a_path))
+            # Now that the archive is on disk, we don't need the workdir.
+            shutil.rmtree(out_project, ignore_errors=True)
+            LOG.info("[pack] removed working directory")
+        except Exception as e:
+            LOG.exception("[pack] FAILED: %s", e)
+            LOG.error("[pack] working directory left in place for inspection: %s",
+                      out_project)
+            failures += 1
+
     LOG.info("")
     LOG.info(_bold(_cyan("=" * 72)))
     if failures:
         LOG.error("Done, with %d failure(s). See log: %s", failures, log_path)
         return 1
-    LOG.info("%s Output project written to: %s",
-             _bold(_green("Done.")), _cyan(out_project))
+    if args.apply:
+        if args.p3a:
+            LOG.info("%s Output P3A archive written to: %s",
+                     _bold(_green("Done.")), _cyan(final_p3a_path))
+        else:
+            LOG.info("%s Output project written to: %s",
+                     _bold(_green("Done.")), _cyan(out_project))
+    else:
+        # Dry-run: just remind the user where the output WOULD have gone.
+        if args.p3a:
+            LOG.info("%s (dry-run: would have produced P3A: %s)",
+                     _bold(_cyan("Done.")), _dim(final_p3a_path))
+        else:
+            LOG.info("%s (dry-run: would have produced directory: %s)",
+                     _bold(_cyan("Done.")), _dim(out_project))
     LOG.info("Log file: %s", _dim(log_path))
     return 0
 
