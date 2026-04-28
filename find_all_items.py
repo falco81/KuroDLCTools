@@ -34,6 +34,32 @@ except ImportError as e:
     MISSING_LIB = str(e)
 
 
+def setup_utf8_console():
+    """Configure the terminal for UTF-8 output.
+
+    On Windows, cmd.exe's default code page (e.g. cp1250 in Czech locale,
+    cp437 in US) cannot represent symbols like the black diamond (U+25C6)
+    that some game item names use as a prefix. Setting the console output
+    code page to 65001 (UTF-8) and reconfiguring sys.stdout/sys.stderr to
+    UTF-8 lets the original characters reach the console. Whether they
+    render visually still depends on the console font (Consolas, Lucida
+    Console, NSimSun and most TrueType fonts on Windows 10/11 do support
+    these symbols; the legacy raster 'Terminal' font does not).
+
+    No-op on non-Windows platforms (which already default to UTF-8)."""
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+        except Exception:
+            pass
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, ValueError):
+            pass
+
+
 # -------------------------
 # Data loading functions (integrated from data_loader.py)
 # -------------------------
@@ -451,6 +477,104 @@ def load_costume_data(force_source=None, no_interactive=False, keep_extracted=Fa
 
     return costume_map if costume_map else None
 
+def find_and_print_duplicates(items, costume_map=None, ascii_safe=False):
+    """
+    Find and display duplicate records in the items list.
+
+    Two kinds of duplicates are reported:
+      1. Duplicate IDs    - multiple items sharing the same 'id' field.
+      2. Duplicate names  - multiple items sharing the exact same 'name' field
+                            (technical name, case-sensitive).
+
+    If ascii_safe is True, characters outside standard Latin are replaced
+    with '?' for display (fallback for terminals that can't render symbols
+    like the black diamond U+25C6).
+
+    Returns total number of duplicate groups found.
+    """
+    def safe_str(s):
+        """Display-safe variant of a string. When ascii_safe is False this
+        is a pass-through; when True, characters outside ASCII printable +
+        Latin-1 + Latin Extended A&B are replaced with '?'.
+        Note: matching/grouping is always done on the ORIGINAL string."""
+        if not isinstance(s, str):
+            return str(s)
+        if not ascii_safe:
+            return s
+        return ''.join(
+            c if (0x20 <= ord(c) < 0x7F) or (0xA0 <= ord(c) <= 0x024F) else '?'
+            for c in s
+        )
+
+    # Group items by id and by name. Keep order of first occurrence per group.
+    by_id = {}
+    by_name = {}
+
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        if 'id' not in item or 'name' not in item:
+            continue
+
+        item_id = item['id']
+        item_name = item['name']
+
+        by_id.setdefault(str(item_id), []).append((idx, item_id, item_name))
+        # Only consider non-empty string names for name duplicates
+        if isinstance(item_name, str) and item_name.strip() != '':
+            by_name.setdefault(item_name, []).append((idx, item_id, item_name))
+
+    dup_ids   = {k: v for k, v in by_id.items()   if len(v) > 1}
+    dup_names = {k: v for k, v in by_name.items() if len(v) > 1}
+
+    def fmt_costume(item_id):
+        if costume_map and str(item_id) in costume_map:
+            return f"  [{safe_str(costume_map[str(item_id)])}]"
+        return ""
+
+    # ---- Duplicate IDs ----
+    print("=" * 60)
+    print("DUPLICATE IDs")
+    print("=" * 60)
+    if not dup_ids:
+        print("  (none found)")
+    else:
+        # Sort numerically when possible
+        try:
+            sorted_keys = sorted(dup_ids.keys(), key=lambda x: int(x))
+        except ValueError:
+            sorted_keys = sorted(dup_ids.keys())
+
+        for key in sorted_keys:
+            entries = dup_ids[key]
+            print(f"\n  ID {key}  ({len(entries)} occurrences):")
+            for idx, item_id, item_name in entries:
+                print(f"    [#{idx}] {safe_str(item_name)}{fmt_costume(item_id)}")
+
+    # ---- Duplicate names ----
+    print()
+    print("=" * 60)
+    print("DUPLICATE NAMES (identical technical name)")
+    print("=" * 60)
+    if not dup_names:
+        print("  (none found)")
+    else:
+        for key in sorted(dup_names.keys(), key=lambda s: s.lower()):
+            entries = dup_names[key]
+            print(f"\n  \"{safe_str(key)}\"  ({len(entries)} occurrences):")
+            for idx, item_id, item_name in entries:
+                print(f"    [#{idx}] ID {item_id}{fmt_costume(item_id)}")
+
+    # ---- Summary ----
+    print()
+    print("=" * 60)
+    print(f"Summary: {len(dup_ids)} duplicate ID group(s), "
+          f"{len(dup_names)} duplicate name group(s)")
+    print("=" * 60)
+
+    return len(dup_ids) + len(dup_names)
+
+
 def print_usage():
     """Print usage information."""
     print(
@@ -486,6 +610,13 @@ def print_usage():
         "  --source=TYPE       Force specific source: json, tbl, original, p3a, zzz\n"
         "  --no-interactive    Auto-select first source if multiple found\n"
         "  --keep-extracted    Keep temporary extracted files from P3A\n"
+        "  --duplicates        Find and display all duplicate records\n"
+        "                      (same ID, or identical technical item name).\n"
+        "                      Ignores search_query when used.\n"
+        "  --ascii             For --duplicates: replace non-Latin characters\n"
+        "                      (e.g. game UI symbols like the black diamond)\n"
+        "                      with '?' in the output. Use as a fallback if\n"
+        "                      your terminal font cannot render them.\n"
         "  --help              Show this help message\n"
         "\n"
         "Examples:\n"
@@ -513,6 +644,9 @@ def print_usage():
         "  python find_all_items.py --source=json\n"
         "      Lists all items, forcing JSON source.\n"
         "\n"
+        "  python find_all_items.py --duplicates\n"
+        "      Finds and lists all items with duplicate IDs or identical names.\n"
+        "\n"
         "IMPORTANT:\n"
         "  Use 'name:' prefix when searching for numbers in item names!\n"
         "  Otherwise, auto-detect will treat it as an ID search.\n"
@@ -523,6 +657,9 @@ def print_usage():
 
 def main():
     """Main function."""
+    # Configure console for UTF-8 (mainly affects Windows cmd.exe).
+    setup_utf8_console()
+
     # Parse command line arguments
     search_text = None
     search_id = None
@@ -530,6 +667,8 @@ def main():
     force_source = None
     no_interactive = False
     keep_extracted = False
+    find_duplicates = False
+    ascii_safe = False
     
     args = sys.argv[1:]
     
@@ -551,6 +690,10 @@ def main():
             no_interactive = True
         elif arg == '--keep-extracted':
             keep_extracted = True
+        elif arg == '--duplicates':
+            find_duplicates = True
+        elif arg == '--ascii':
+            ascii_safe = True
         elif arg.startswith('--'):
             print(f"Error: Unknown option '{arg}'")
             print("Use --help for usage information.")
@@ -618,6 +761,11 @@ def main():
     costume_map = load_costume_data(force_source, no_interactive, keep_extracted,
                                     preferred_path=source_info.get('path'))
     print()
+    
+    # --duplicates mode: find duplicates and exit (ignores search query)
+    if find_duplicates:
+        find_and_print_duplicates(items, costume_map, ascii_safe=ascii_safe)
+        return
     
     # Build items dictionary
     items_dict = {}
