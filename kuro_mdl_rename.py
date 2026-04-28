@@ -1,0 +1,2938 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+kuro_mdl_rename.py
+==================
+
+Self-contained tool that produces a fresh, renamed copy of a Kuro no Kiseki /
+ED9 asset project. For every .mdl found under <project>/asset/common/model/
+it will:
+
+  1. Compute a new mdl name (prefix + original + suffix).
+  2. Read the .mdl's material data and figure out which images it references.
+  3. Compare the referenced images against <project>/asset/dx11/image/ and
+     produce a unique renamed copy for every image actually present on disk.
+     The image rename is anchored on the *new* mdl basename so that two .mdl
+     files that share the same source image still end up referencing their
+     own private copy in the output project.
+  4. Patch image_list.json (extension preserved) and material_info.json
+     (texture_image_name has no extension in this file).
+  5. Repack the .mdl using the embedded import logic, write it to the new
+     project tree under the new name, then clean up scratch files.
+
+References that point at images NOT present on disk are left untouched and
+are listed in a per-mdl summary at the end.
+
+Images that exist on disk but are not referenced by any of the project's
+.mdl files are simply not copied to the output (per the spec).
+
+Source data is never modified -- everything goes into a separate output
+directory next to the source.
+
+Default mode is dry-run; use --apply to actually write the new project.
+
+Usage examples (Windows cmd):
+    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW
+    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --apply
+    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --prefix mod_ --suffix _v2 --apply
+    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --output C:\\mods\\pyrixiaSFW_modded --apply
+
+Requires: blowfish, zstandard, xxhash, numpy   (and optionally colorama)
+    py -m pip install blowfish zstandard xxhash numpy colorama
+"""
+
+# ---------------------------------------------------------------------------
+# Unified imports for both the embedded library code and the wrapper code.
+# ---------------------------------------------------------------------------
+import argparse
+import io
+import json
+import logging
+import os
+import re
+import shutil
+import struct
+import sys
+from datetime import datetime
+from itertools import chain
+
+# Hard dependencies of the embedded library code.
+try:
+    import blowfish
+    import numpy
+    import operator
+    import xxhash
+    import zstandard
+except ImportError as e:
+    sys.stderr.write(
+        "ERROR: missing required Python module: {}\n"
+        "Install with:  py -m pip install blowfish zstandard xxhash numpy\n".format(e)
+    )
+    sys.exit(2)
+
+# Optional: colorama for nice colored output on Windows cmd.
+try:
+    from colorama import Fore, Style, init as _colorama_init
+    _colorama_init(autoreset=True)
+    _COLORAMA_OK = True
+except ImportError:  # graceful fallback
+    class _NoColor:
+        def __getattr__(self, _):
+            return ""
+    Fore = _NoColor()
+    Style = _NoColor()
+    _COLORAMA_OK = False
+
+
+# Match any ANSI SGR escape so the file handler (and --no-color console)
+# can strip them out.
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+# Colors-as-runtime-flag: set to False for --no-color so _c() returns plain
+# strings everywhere. Defaults to whether colorama is available.
+_COLOR_ENABLED = _COLORAMA_OK
+
+
+def _c(text, *codes):
+    """Wrap `text` with ANSI codes when color is enabled; otherwise pass
+    through unchanged. The codes are simply concatenated, so you can pass
+    e.g. _c('hi', Style.BRIGHT, Fore.GREEN)."""
+    if not _COLOR_ENABLED or not codes:
+        return str(text)
+    return "".join(codes) + str(text) + Style.RESET_ALL
+
+
+def _bold(t):    return _c(t, Style.BRIGHT)
+def _dim(t):     return _c(t, Style.DIM)
+def _cyan(t):    return _c(t, Fore.CYAN)
+def _green(t):   return _c(t, Fore.GREEN)
+def _yellow(t):  return _c(t, Fore.YELLOW)
+def _red(t):     return _c(t, Fore.RED)
+def _magenta(t): return _c(t, Fore.MAGENTA)
+
+
+# ---------------------------------------------------------------------------
+# Override the builtin `input` so the embedded code never blocks on prompts.
+# The export's "folder exists, overwrite?" prompt is bypassed by passing
+# overwrite=True; this safety net catches any other interactive prompt
+# (e.g. the vgmap-incompatible warning in the import code).
+# ---------------------------------------------------------------------------
+_real_input = input
+def input(prompt=""):  # noqa: A001 - intentional shadowing of builtin
+    msg = "[suppressed interactive prompt] " + str(prompt).rstrip()
+    try:
+        logging.getLogger("kuro_mdl_rename").warning(msg)
+    except Exception:
+        sys.stderr.write(msg + "\n")
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Interactive-prompt helpers
+# ---------------------------------------------------------------------------
+# These use _real_input (the original builtin we saved above), NOT the
+# no-op `input` we installed for the embedded code's safety net.
+def _is_interactive():
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+def _windows_prefill_input(prompt, default):
+    """Inject `default` into the Windows console input buffer so the user
+    sees it as if typed and can edit it normally with Backspace, Delete,
+    arrow keys, etc. before pressing Enter. Raises OSError on failure so
+    the caller can fall back."""
+    import ctypes
+    from ctypes import wintypes
+    if not default:
+        return _real_input(prompt)
+
+    STD_INPUT_HANDLE = -10
+    KEY_EVENT = 0x0001
+
+    kernel32 = ctypes.windll.kernel32
+    h_stdin = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+    if h_stdin in (0, ctypes.c_void_p(-1).value):
+        raise OSError("could not get stdin handle")
+
+    class _UCHAR(ctypes.Union):
+        _fields_ = [
+            ("UnicodeChar", wintypes.WCHAR),
+            ("AsciiChar", ctypes.c_char),
+        ]
+
+    class KEY_EVENT_RECORD(ctypes.Structure):
+        _fields_ = [
+            ("bKeyDown", wintypes.BOOL),
+            ("wRepeatCount", wintypes.WORD),
+            ("wVirtualKeyCode", wintypes.WORD),
+            ("wVirtualScanCode", wintypes.WORD),
+            ("uChar", _UCHAR),
+            ("dwControlKeyState", wintypes.DWORD),
+        ]
+
+    class _Event(ctypes.Union):
+        _fields_ = [("KeyEvent", KEY_EVENT_RECORD)]
+
+    class INPUT_RECORD(ctypes.Structure):
+        _fields_ = [
+            ("EventType", wintypes.WORD),
+            ("Event", _Event),
+        ]
+
+    n = len(default) * 2  # one key-down + one key-up per character
+    arr = (INPUT_RECORD * n)()
+    for i, ch in enumerate(default):
+        for k, down in enumerate((True, False)):
+            r = arr[i * 2 + k]
+            r.EventType = KEY_EVENT
+            kev = r.Event.KeyEvent
+            kev.bKeyDown = 1 if down else 0
+            kev.wRepeatCount = 1
+            kev.wVirtualKeyCode = 0
+            kev.wVirtualScanCode = 0
+            kev.uChar.UnicodeChar = ch
+            kev.dwControlKeyState = 0
+
+    written = wintypes.DWORD(0)
+    ok = kernel32.WriteConsoleInputW(h_stdin, arr, n, ctypes.byref(written))
+    if not ok or written.value != n:
+        raise OSError("WriteConsoleInputW failed")
+    return _real_input(prompt)
+
+
+def _unix_prefill_input(prompt, default):
+    """readline-based pre-fill for Linux/macOS terminals."""
+    import readline  # stdlib on POSIX
+    if not default:
+        return _real_input(prompt)
+    readline.set_startup_hook(lambda: readline.insert_text(default))
+    try:
+        return _real_input(prompt)
+    finally:
+        readline.set_startup_hook(None)
+
+
+def prompt_with_default(prompt, default, allow_empty=True):
+    """Prompt the user with `default` pre-filled and editable when possible.
+
+    - On a real interactive console the default appears as if typed and the
+      user edits it (Backspace, Delete, arrows) before pressing Enter.
+    - On non-interactive stdin (pipes/redirects) or if the platform-specific
+      pre-fill machinery is unavailable, a bracket-style prompt is shown
+      where empty input means "use the default".
+    - If `allow_empty` is False, an empty result re-prompts.
+    """
+    default = "" if default is None else str(default)
+    while True:
+        used_prefill = False
+        if _is_interactive():
+            try:
+                if sys.platform == "win32":
+                    val = _windows_prefill_input(prompt, default)
+                else:
+                    val = _unix_prefill_input(prompt, default)
+                used_prefill = True
+            except Exception:
+                used_prefill = False
+
+        if not used_prefill:
+            # Bracket-style fallback. Empty input -> default.
+            base = prompt.rstrip().rstrip(":")
+            shown = " [{}]".format(default) if default else ""
+            try:
+                raw = _real_input("{}{}: ".format(base, shown))
+            except EOFError:
+                raw = ""
+            val = raw if raw != "" else default
+
+        if val == "" and not allow_empty:
+            sys.stdout.write("  Value cannot be empty. Try again.\n")
+            continue
+        return val
+
+
+def prompt_yes_no(prompt, default=False):
+    """Yes/no prompt. `default` is the value used on empty input."""
+    default_label = "yes" if default else "no"
+    while True:
+        ans = prompt_with_default(prompt, default_label).strip().lower()
+        if ans in ("y", "yes", "true", "1"):
+            return True
+        if ans in ("n", "no", "false", "0", ""):
+            return False
+        sys.stdout.write("  Please answer yes or no.\n")
+
+
+def _is_safe_name(name):
+    """Allow filename-safe characters only: no \\ / : * ? \" < > | and no
+    whitespace. Empty is rejected by the caller."""
+    bad = '\\/:*?"<>|'
+    for ch in name:
+        if ch in bad or ch.isspace():
+            return False
+    return True
+
+
+# ===========================================================================
+# BEGIN EMBEDDED LIBRARY CODE (lib_fmtibvb + kuro_mdl_export_meshes +
+#                              kuro_mdl_import_meshes, with imports and
+#                              __main__ blocks stripped).
+#
+# Source: https://github.com/eArmada8/kuro_mdl_tool
+# ===========================================================================
+# === /mnt/user-data/uploads/lib_fmtibvb.py ===
+# A small library of functions to read and write .fmt / .ib / .vb files into and out of
+# python structures that are JSON serializable.
+#
+# GitHub eArmada8/gust_stuff
+
+
+# Currently only simple formats (8-, 16-, and 32-bit) are supported.  Floats must be 32-bit.
+# Attempting to read an unsupported format will return a raw bytes object.
+
+
+def unpack_dxgi_vector(f, stride, dxgi_format, e = '<'):
+    dxgi_format = dxgi_format.split('DXGI_FORMAT_')[-1]
+    dxgi_format_split = dxgi_format.split('_')
+    if len(dxgi_format_split) == 2:
+        numtype = dxgi_format_split[1]
+        vec_format = re.findall("[0-9]+",dxgi_format_split[0])
+        if len(vec_format) > 0:
+            vec_bits = int(vec_format[0])
+            vec_elements = len(vec_format)
+        else:
+            vec_bits = 0
+            vec_elements = 0
+    else:
+        numtype = 'UNSUPPORTED'
+
+    if numtype == 'FLOAT' and (vec_elements * vec_bits / 8 == stride):
+        if vec_bits == 32:
+            read = list(struct.unpack(e+str(vec_elements)+"f", f.read(stride)))
+        elif vec_bits == 16:
+            read = list(struct.unpack(e+str(vec_elements)+"e", f.read(stride)))
+    elif numtype == 'UINT' and (vec_elements * vec_bits / 8 == stride):
+        if vec_bits == 32:
+            read = list(struct.unpack(e+str(vec_elements)+"I", f.read(stride)))
+        elif vec_bits == 16:
+            read = list(struct.unpack(e+str(vec_elements)+"H", f.read(stride)))
+        elif vec_bits == 8:
+            read = list(struct.unpack(e+str(vec_elements)+"B", f.read(stride)))
+    elif numtype == "SINT" and (vec_elements * vec_bits / 8 == stride):
+        if vec_bits == 32:
+            read = list(struct.unpack(e+str(vec_elements)+"i", f.read(stride)))
+        elif vec_bits == 16:
+            read = list(struct.unpack(e+str(vec_elements)+"h", f.read(stride)))
+        elif vec_bits == 8:
+            read = list(struct.unpack(e+str(vec_elements)+"b", f.read(stride)))
+    elif numtype == "UNORM" and (vec_elements * vec_bits / 8 == stride):
+        # First read as integers
+        if vec_bits == 32:
+            read = list(struct.unpack(e+str(vec_elements)+"I", f.read(stride)))
+        elif vec_bits == 16:
+            read = list(struct.unpack(e+str(vec_elements)+"H", f.read(stride)))
+        elif vec_bits == 8:
+            read = list(struct.unpack(e+str(vec_elements)+"B", f.read(stride)))
+        # Convert to normalized floats
+        float_max = ((2**vec_bits)-1)
+        for i in range(len(read)):
+            read[i] = read[i] / float_max
+    elif numtype == "SNORM" and (vec_elements * vec_bits / 8 == stride):
+        # First read as integers
+        if vec_bits == 32:
+            read = list(struct.unpack(e+str(vec_elements)+"i", f.read(stride)))
+        elif vec_bits == 16:
+            read = list(struct.unpack(e+str(vec_elements)+"h", f.read(stride)))
+        elif vec_bits == 8:
+            read = list(struct.unpack(e+str(vec_elements)+"b", f.read(stride)))
+        # Convert to normalized floats
+        float_max = ((2**(vec_bits-1))-1)
+        for i in range(len(read)):
+            read[i] = read[i] / float_max
+    else:
+        read = f.read(stride)
+    return (read)
+
+def pack_dxgi_vector(f, data, stride, dxgi_format, e = '<'):
+    dxgi_format = dxgi_format.split('DXGI_FORMAT_')[-1]
+    dxgi_format_split = dxgi_format.split('_')
+    if len(dxgi_format_split) == 2:
+        numtype = dxgi_format_split[1]
+        vec_format = re.findall("[0-9]+",dxgi_format_split[0])
+        if len(vec_format) > 0:
+            vec_bits = int(vec_format[0])
+            vec_elements = len(vec_format)
+        else:
+            vec_bits = 0
+            vec_elements = 0
+    else:
+        numtype = 'UNSUPPORTED'
+
+    if numtype == 'FLOAT' and (vec_elements * vec_bits / 8 == stride):
+        for i in range(vec_elements):
+            if vec_bits == 32:
+                f.write(struct.pack(e+"f", data[i]))
+            elif vec_bits == 16:
+                f.write(struct.pack(e+"e", data[i]))
+    elif numtype == 'UINT' and (vec_elements * vec_bits / 8 == stride):
+        for i in range(vec_elements):
+            if vec_bits == 32:
+                f.write(struct.pack(e+"I", data[i]))
+            elif vec_bits == 16:
+                f.write(struct.pack(e+"H", data[i]))
+            elif vec_bits == 8:
+                f.write(struct.pack(e+"B", data[i]))
+    elif numtype == "SINT" and (vec_elements * vec_bits / 8 == stride):
+        for i in range(vec_elements):
+            if vec_bits == 32:
+                f.write(struct.pack(e+"i", data[i]))
+            elif vec_bits == 16:
+                f.write(struct.pack(e+"h", data[i]))
+            elif vec_bits == 8:
+                f.write(struct.pack(e+"b", data[i]))
+    elif numtype == 'UNORM' and (vec_elements * vec_bits / 8 == stride):
+        converted_data = []
+        for i in range(vec_elements):
+            #First convert back to unsigned integers, then pack
+            float_max = ((2**vec_bits)-1)
+            converted_data.append(int(round(min(max(data[i],0), 1) * float_max)))
+            if vec_bits == 32:
+                f.write(struct.pack(e+"I", converted_data[i]))
+            elif vec_bits == 16:
+                f.write(struct.pack(e+"H", converted_data[i]))
+            elif vec_bits == 8:
+                f.write(struct.pack(e+"B", converted_data[i]))
+    elif numtype == 'SNORM' and (vec_elements * vec_bits / 8 == stride):
+        converted_data = []
+        for i in range(vec_elements):
+            #First convert back to unsigned integers, then pack
+            float_max = ((2**(vec_bits-1))-1)
+            converted_data.append(int(round(min(max(data[i],-1), 1) * float_max)))
+            if vec_bits == 32:
+                f.write(struct.pack(e+"i", converted_data[i]))
+            elif vec_bits == 16:
+                f.write(struct.pack(e+"h", converted_data[i]))
+            elif vec_bits == 8:
+                f.write(struct.pack(e+"b", converted_data[i]))
+    else:
+        write = f.write(data)
+    return
+
+def get_stride_from_dxgi_format(dxgi_format):
+    dxgi_format = dxgi_format.split('DXGI_FORMAT_')[-1]
+    dxgi_format_split = dxgi_format.split('_')
+    if len(dxgi_format_split) == 2:
+        numtype = dxgi_format_split[1]
+        vec_format = re.findall("[0-9]+",dxgi_format_split[0])
+        if len(vec_format) > 0:
+            return(int(len(vec_format) * int(vec_format[0]) / 8))
+        else:
+            return False
+    else:
+        return False
+
+def read_fmt(fmt_filename):
+    fmt_struct = {}
+    with open(fmt_filename, 'r') as f:
+        elements = []
+        while True:
+            line = f.readline().strip()
+            if line[0:7] == 'element':
+                element = {}
+                element['id'] = line.split('[')[-1][:-2]
+                while True:
+                    line_offset = f.tell()
+                    line = f.readline().strip()
+                    if line[0:7] == 'element' or line == "":
+                        f.seek(line_offset)
+                        elements.append(element)
+                        break
+                    else:
+                        element[line.split(': ')[0]] = line.split(': ')[1]
+            else:
+                if line == "":
+                    break
+                fmt_struct[line.split(': ')[0]] = line.split(': ')[1]
+        fmt_struct['elements'] = elements
+    return(fmt_struct)
+
+def write_fmt(fmt_struct, fmt_filename):
+    output = bytearray()
+    for key in fmt_struct:
+        if key == "elements":
+            for i in range(len(fmt_struct["elements"])):
+                for key in fmt_struct["elements"][i]:
+                    if key == "id":
+                        output.extend(("element[" + fmt_struct["elements"][i][key] + "]:\r\n").encode())
+                    else:
+                        output.extend(("  " + key + ": " + fmt_struct["elements"][i][key] + "\r\n").encode())
+        else:
+            output.extend((key + ": " + fmt_struct[key] + "\r\n").encode())
+    with open(fmt_filename, "wb") as f:
+        f.write(output)
+    return
+
+def read_ib_stream(ib_stream, fmt_struct, e = '<'):
+    ib_data = []
+    # Cheating a bit here, since all index buffers I've seen are single numbers, but fmt doesn't have a stride for IB
+    ib_stride = int(int(re.findall("[0-9]+", fmt_struct["format"])[0])/8)
+    with io.BytesIO(ib_stream) as f:
+        length = f.seek(0,2)
+        f.seek(0)
+        vertex_num = 0
+        triangle = []
+        while f.tell() < length:
+            triangle.extend(unpack_dxgi_vector(f, ib_stride, fmt_struct["format"], e))
+            vertex_num += 1
+            if vertex_num % 3 == 0 or f.tell() == length:
+                ib_data.append(triangle)
+                triangle = []
+    return(ib_data)
+
+def read_ib(ib_filename, fmt_struct, e = '<'):
+    with open(ib_filename, 'rb') as f:
+        ib_stream = f.read()
+    return(read_ib_stream(ib_stream, fmt_struct, e))
+
+def write_ib_stream(ib_data, ib_stream, fmt_struct, e = '<'):
+    # See above about cheating
+    ib_stride = int(int(re.findall("[0-9]+", fmt_struct["format"])[0])/8)
+    if len(ib_data) > 0:
+        if type(ib_data[0]) == list: # Flatten list for legacy code
+            new_ib_data = [x for y in ib_data for x in y]
+        else:
+            new_ib_data = ib_data
+    else:
+        new_ib_data = ib_data
+    for i in range(len(new_ib_data)):
+        pack_dxgi_vector(ib_stream, [new_ib_data[i]], ib_stride, fmt_struct["format"], e)
+    return
+
+def write_ib(ib_data, ib_filename, fmt_struct, e = '<'):
+    with open(ib_filename, 'wb') as f:
+        write_ib_stream(ib_data, f, fmt_struct, e)
+    return
+
+def read_vb_stream(vb_stream, fmt_struct, e = '<'):
+    vb_data = []
+    with io.BytesIO(vb_stream) as f:
+        length = f.seek(0,2)
+        f.seek(0)
+        num_vertex = int(length / int(fmt_struct["stride"]))
+        buffer_strides = []
+        # Calculate individual buffer strides
+        for i in range(len(fmt_struct["elements"])):
+            if i == len(fmt_struct["elements"]) - 1:
+                buffer_strides.append(int(fmt_struct["stride"]) - int(fmt_struct["elements"][i]["AlignedByteOffset"]))
+            else:
+                buffer_strides.append(int(fmt_struct["elements"][i+1]["AlignedByteOffset"]) \
+                    - int(fmt_struct["elements"][i]["AlignedByteOffset"]))
+        # Read in the buffers
+        for i in range(len(fmt_struct["elements"])):
+            element = {}
+            element["SemanticName"] = fmt_struct["elements"][i]["SemanticName"]
+            element["SemanticIndex"] = fmt_struct["elements"][i]["SemanticIndex"]
+            element_buffer = []
+            for j in range(num_vertex):
+                f.seek(j * int(fmt_struct["stride"]) + int(fmt_struct["elements"][i]["AlignedByteOffset"]),0)
+                element_buffer.append(unpack_dxgi_vector(f, buffer_strides[i], fmt_struct["elements"][i]["Format"], e))
+            element["Buffer"] = element_buffer
+            vb_data.append(element)
+    return(vb_data)
+
+def read_seg_vb_stream(vb_stream, fmt_struct, input_slot, e = '<'):
+    seg_stride = "vb{} stride".format(input_slot)
+    seg_elements = [x for x in fmt_struct['elements'] if x['InputSlot'] == input_slot]
+    vb_data = []
+    with io.BytesIO(vb_stream) as f:
+        length = f.seek(0,2)
+        f.seek(0)
+        num_vertex = int(length / int(fmt_struct[seg_stride]))
+        buffer_strides = []
+        # Calculate individual buffer strides
+        for i in range(len(seg_elements)):
+            if i == len(seg_elements) - 1:
+                buffer_strides.append(int(fmt_struct[seg_stride]) - int(seg_elements[i]["AlignedByteOffset"]))
+            else:
+                buffer_strides.append(int(seg_elements[i+1]["AlignedByteOffset"]) \
+                    - int(seg_elements[i]["AlignedByteOffset"]))
+        # Read in the buffers
+        for i in range(len(seg_elements)):
+            element = {}
+            element["SemanticName"] = seg_elements[i]["SemanticName"]
+            element["SemanticIndex"] = seg_elements[i]["SemanticIndex"]
+            element["InputSlot"] = seg_elements[i]["InputSlot"]
+            element_buffer = []
+            for j in range(num_vertex):
+                f.seek(j * int(fmt_struct[seg_stride]) + int(seg_elements[i]["AlignedByteOffset"]),0)
+                element_buffer.append(unpack_dxgi_vector(f, buffer_strides[i], seg_elements[i]["Format"], e))
+            element["Buffer"] = element_buffer
+            vb_data.append(element)
+    return(vb_data)
+
+def read_vb(vb_filename, fmt_struct, e = '<'):
+    if 'stride' in fmt_struct:
+        with open(vb_filename, 'rb') as f:
+            vb_stream = f.read()
+        return(read_vb_stream(vb_stream, fmt_struct, e))
+    elif 'vb0 stride' in fmt_struct:
+        vb = []
+        for input_slot in [x[2:-7] for x in fmt_struct if len(x.split('stride')) > 1]:
+            with open(vb_filename + input_slot, 'rb') as f:
+                vb_stream = f.read()
+            vb.extend(read_seg_vb_stream(vb_stream, fmt_struct, input_slot, e))
+        return(vb)
+    else:
+        print("Decoding error when trying to interpret fmt file for {0}!\r\n".format(vb_filename))
+        input("Press Enter to abort.")
+        raise
+
+def write_vb_stream(vb_data, vb_stream, fmt_struct, e = '<', interleave = True):
+    buffer_strides = []
+    # Calculate individual buffer strides
+    for i in range(len(fmt_struct["elements"])):
+        if i == len(fmt_struct["elements"]) - 1:
+            buffer_strides.append(int(fmt_struct["stride"]) - int(fmt_struct["elements"][i]["AlignedByteOffset"]))
+        else:
+            buffer_strides.append(int(fmt_struct["elements"][i+1]["AlignedByteOffset"]) \
+                - int(fmt_struct["elements"][i]["AlignedByteOffset"]))
+    if interleave == True:
+        # Write out the buffers, vertex by vertex.
+        for j in range(len(vb_data[0]["Buffer"])):
+            for i in range(len(fmt_struct["elements"])):
+                pack_dxgi_vector(vb_stream, vb_data[i]["Buffer"][j], buffer_strides[i], fmt_struct["elements"][i]["Format"], e)
+    else:
+        # Write out the buffers, element by element.
+        for i in range(len(fmt_struct["elements"])):
+            for j in range(len(vb_data[0]["Buffer"])):
+                pack_dxgi_vector(vb_stream, vb_data[i]["Buffer"][j], buffer_strides[i], fmt_struct["elements"][i]["Format"], e)
+    return
+
+def write_seg_vb_stream(vb_data, vb_stream, fmt_struct, input_slot, e = '<', interleave = True):
+    buffer_strides = []
+    seg_stride = fmt_struct["vb{} stride".format(input_slot)]
+    seg_vb_data = [x for x in vb_data if x['InputSlot'] == input_slot]
+    seg_elements = [x for x in fmt_struct['elements'] if x['InputSlot'] == input_slot]
+    # Calculate individual buffer strides
+    for i in range(len(seg_elements)):
+        if i == len(seg_elements) - 1:
+            buffer_strides.append(int(seg_stride) - int(seg_elements[i]["AlignedByteOffset"]))
+        else:
+            buffer_strides.append(int(seg_elements[i+1]["AlignedByteOffset"]) \
+                - int(seg_elements[i]["AlignedByteOffset"]))
+    if interleave == True:
+        # Write out the buffers, vertex by vertex.
+        for j in range(len(seg_vb_data[0]["Buffer"])):
+            for i in range(len(seg_elements)):
+                pack_dxgi_vector(vb_stream, seg_vb_data[i]["Buffer"][j], buffer_strides[i], seg_elements[i]["Format"], e)
+    else:
+        # Write out the buffers, element by element.
+        for i in range(len(seg_elements)):
+            for j in range(len(seg_vb_data[0]["Buffer"])):
+                pack_dxgi_vector(vb_stream, seg_vb_data[i]["Buffer"][j], buffer_strides[i], seg_elements[i]["Format"], e)
+    return
+
+def write_vb(vb_data, vb_filename, fmt_struct, e = '<', interleave = True):
+    if 'stride' in fmt_struct:
+        with open(vb_filename, 'wb') as f:
+            write_vb_stream(vb_data, f, fmt_struct, e=e, interleave=interleave)
+    elif 'vb0 stride' in fmt_struct:
+        for input_slot in [x[2:-7] for x in fmt_struct if len(x.split('stride')) > 1]:
+            with open(vb_filename + input_slot, 'wb') as f:
+                write_seg_vb_stream(vb_data, f, fmt_struct, input_slot, e=e, interleave=interleave)
+    else:
+        print("Decoding error when trying to interpret fmt file for {0}!\r\n".format(vb_filename))
+        input("Press Enter to abort.")
+        raise
+    return
+
+# The following two functions are purely for convenience
+def read_struct_from_json(filename, raise_on_fail = True):
+    with open(filename, 'r') as f:
+        try:
+            return(json.loads(f.read()))
+        except json.JSONDecodeError as e:
+            print("Decoding error when trying to read JSON file {0}!\r\n".format(filename))
+            print("{0} at line {1} column {2} (character {3})\r\n".format(e.msg, e.lineno, e.colno, e.pos))
+            if raise_on_fail == True:
+                input("Press Enter to abort.")
+                raise
+            else:
+                return(False)
+
+def write_struct_to_json(struct, filename):
+    if not filename[:-5] == '.json':
+        filename += '.json'
+    with open(filename, "wb") as f:
+        f.write(json.dumps(struct, indent=4).encode("utf-8"))
+    return
+
+
+# === /mnt/user-data/uploads/kuro_mdl_export_meshes.py ===
+# Tool to manipulate  ED9 / Kuro no Kiseki models in mdl format.  Dumps meshes for
+# import into Blender.  Based on Uyjulian's script.
+# Usage:  Run by itself without commandline arguments and it will read only the mesh section of
+# every model it finds in the folder and output fmt / ib / vb files.
+#
+# For command line options (including option to dump vertices), run:
+# /path/to/python3 kuro_mdl_export_meshes.py --help
+#
+# Requires both blowfish and zstandard for CLE assets.
+# These can be installed by:
+# /path/to/python3 -m pip install blowfish zstandard
+#
+# GitHub eArmada8/kuro_mdl_tool
+
+
+# This script outputs complete vgmaps by default, change the following line to False to change
+complete_vgmaps_default = True
+
+# Thank you to authors of Kuro Tools for this decrypt function
+# https://github.com/nnguyen259/KuroTools
+
+
+def decryptCLE(file_content):
+    key = b"\x16\x4B\x7D\x0F\x4F\xA7\x4C\xAC\xD3\x7A\x06\xD9\xF8\x6D\x20\x94"
+    IV = b"\x9D\x8F\x9D\xA1\x49\x60\xCC\x4C"
+    cipher = blowfish.Cipher(key, byte_order = "big")
+    iv = struct.unpack(">Q", IV)
+    dec_counter = blowfish.ctr_counter(iv[0], f = operator.add)
+
+    magic = file_content[0:4]
+    to_decrypt = [b"F9BA", b"C9BA"]
+    to_decompress = [b"D9BA"]
+    result = file_content
+    while (magic in to_decrypt) or (magic in to_decompress):
+        if (magic in to_decrypt):
+            result = b"".join(cipher.decrypt_ctr(file_content[8:], dec_counter))
+        elif(magic in to_decompress):
+            decompressor = zstandard.ZstdDecompressor()
+            result = decompressor.decompress(file_content[8:])
+        file_content = result
+        magic = file_content[0:4]
+
+    return result
+
+def get_kuro_ver (mdl_data):
+    kuro_ver, = struct.unpack("<I",mdl_data[4:8])
+    return(kuro_ver)
+
+# From Julian Uy's ED9 MDL parser, thank you
+def read_pascal_string(f):
+    sz = int.from_bytes(f.read(1), byteorder="little")
+    return f.read(sz)
+
+def mdl_contents (mdl_data):
+    with io.BytesIO(mdl_data) as f:
+        mdl_header = struct.unpack("<III",f.read(12))
+        if not mdl_header[0] == 0x204c444d:
+            sys.exit()
+        contents = []
+        while True:
+            current_offset = f.tell()
+            section_info = {}
+            try:
+                section_info["type"], section_info["size"] = struct.unpack("<II",f.read(8))
+            except:
+                break
+            section_info["section_start_offset"] = f.tell()
+            contents.append(section_info)
+            f.seek(section_info["size"],1) # Move forward to the next section
+        return([x['type'] for x in contents])
+
+def isolate_skeleton_data (mdl_data):
+    with io.BytesIO(mdl_data) as f:
+        mdl_header = struct.unpack("<III",f.read(12))
+        if not mdl_header[0] == 0x204c444d:
+            sys.exit()
+        contents = []
+        while True:
+            current_offset = f.tell()
+            section_info = {}
+            try:
+                section_info["type"], section_info["size"] = struct.unpack("<II",f.read(8))
+            except:
+                break
+            section_info["section_start_offset"] = f.tell()
+            contents.append(section_info)
+            f.seek(section_info["size"],1) # Move forward to the next section
+        # Kuro models seem to only have one skeleton section
+        if len([x for x in contents if x["type"] == 2]) > 0:
+            skeleton_section = [x for x in contents if x["type"] == 2][0]
+            f.seek(skeleton_section["section_start_offset"],0)
+            skeleton_section_data = f.read(skeleton_section["size"])
+            return(skeleton_section_data)
+        else:
+            return False
+
+def obtain_skeleton_data (mdl_data):
+    skel_data = isolate_skeleton_data(mdl_data)
+    if skel_data == False:
+        return False
+    with io.BytesIO(skel_data) as f:
+        blocks, = struct.unpack("<I",f.read(4))
+        skel_struct = []
+        for i in range(blocks):
+            node_block = {}
+            node_block['id_referenceonly'] = i # Not used at all for repacking, purely for convenience
+            node_block['name'] = read_pascal_string(f).decode("ASCII")
+            # node_block['type']: 0 = transform only, 1 = skin child, 2 = mesh
+            node_block['type'], node_block['mesh_index'] = struct.unpack("<Ii",f.read(8))
+            node_block['pos_xyz'] = struct.unpack("<3f",f.read(12))
+            node_block['unknown_quat'] = struct.unpack("<4f",f.read(16))
+            node_block['skin_mesh'], = struct.unpack("<I",f.read(4))
+            node_block['rotation_euler_rpy'] = struct.unpack("<3f",f.read(12))
+            node_block['scale'] = struct.unpack("<3f",f.read(12))
+            node_block['unknown'] = struct.unpack("<3f",f.read(12))
+            child_count, = struct.unpack("<I",f.read(4))
+            node_block['children'] = []
+            for j in range(child_count):
+                child, = struct.unpack("<I",f.read(4))
+                node_block['children'].append(child)
+            skel_struct.append(node_block)
+    return(skel_struct)
+
+def isolate_mesh_data (mdl_data):
+    with io.BytesIO(mdl_data) as f:
+        mdl_header = struct.unpack("<III",f.read(12))
+        if not mdl_header[0] == 0x204c444d:
+            sys.exit()
+        contents = []
+        while True:
+            current_offset = f.tell()
+            section_info = {}
+            try:
+                section_info["type"], section_info["size"] = struct.unpack("<II",f.read(8))
+            except:
+                break
+            section_info["section_start_offset"] = f.tell()
+            contents.append(section_info)
+            f.seek(section_info["size"],1) # Move forward to the next section
+        # Kuro models seem to only have one mesh section
+        if len([x for x in contents if x["type"] == 1]) > 0:
+            mesh_section = [x for x in contents if x["type"] == 1][0]
+            f.seek(mesh_section["section_start_offset"],0)
+            mesh_section_data = f.read(mesh_section["size"])
+            return(mesh_section_data)
+        else:
+            return False
+
+# Kuro 2 has separate primitive section
+def isolate_primitive_data (mdl_data):
+    with io.BytesIO(mdl_data) as f:
+        mdl_header = struct.unpack("<III",f.read(12))
+        if not mdl_header[0] == 0x204c444d:
+            sys.exit()
+        contents = []
+        while True:
+            current_offset = f.tell()
+            section_info = {}
+            try:
+                section_info["type"], section_info["size"] = struct.unpack("<II",f.read(8))
+            except:
+                break
+            section_info["section_start_offset"] = f.tell()
+            contents.append(section_info)
+            f.seek(section_info["size"],1) # Move forward to the next section
+        # Kuro models seem to only have one primitive section?
+        primitive_section = [x for x in contents if x["type"] == 4][0]
+        f.seek(primitive_section["section_start_offset"],0)
+        primitive_section_data = f.read(primitive_section["size"])
+        return(primitive_section_data)
+
+def parse_primitive_header (primitive_data):
+    with io.BytesIO(primitive_data) as f:
+        blocks, = struct.unpack("<I",f.read(4))
+        data_offset = blocks * 20 + 4
+        primitive_info = []
+        for i in range(blocks):
+            element = {}
+            element["type_int"], element["size"], element["stride"], element["mesh"],\
+                element["submesh"] = struct.unpack("<5I",f.read(20))
+            element["offset"] = data_offset
+            data_offset += element["size"]
+            primitive_info.append(element)
+    return(primitive_info)
+            
+def obtain_mesh_data (mdl_data, material_struct, trim_for_gpu = False):
+    kuro_ver = get_kuro_ver(mdl_data)
+    mesh_data = isolate_mesh_data(mdl_data)
+    if mesh_data == False:
+        return False
+    material_dict = {i:material_struct[i]['material_name'] for i in range(len(material_struct))}
+    if kuro_ver > 1:
+        primitive_data = isolate_primitive_data(mdl_data)
+        primitive_info = parse_primitive_header(primitive_data)
+        prim = io.BytesIO(primitive_data)
+    with io.BytesIO(mesh_data) as f:
+        blocks, = struct.unpack("<I",f.read(4))
+        mesh_blocks = []
+        mesh_block_buffers = []
+        mesh_collision_data = []
+        # Meshes are separated into groups (hair, body, shadow)
+        for i in range(blocks):
+            mesh_block = {}
+            mesh_block["name"] = read_pascal_string(f).decode("ASCII")
+            mesh_block["size"], = struct.unpack("<I",f.read(4))
+            mesh_block["offset"] = f.tell()
+            mesh_block["primitive_count"], = struct.unpack("<I",f.read(4))
+            primitives = []
+            mesh_buffers = []
+            for j in range(mesh_block["primitive_count"]):
+                primitive = {}
+                primitive["id_referenceonly"] = j # Not used at all for repacking, purely for convenience
+                primitive["material"] = material_dict[struct.unpack("<I",f.read(4))[0]]
+                if kuro_ver == 1:
+                    primitive["num_of_elements"], = struct.unpack("<I",f.read(4))
+                elif kuro_ver > 1:
+                    primitive["num_of_elements"] = len([x for x in primitive_info if x['mesh'] == i and x['submesh'] == j])
+                    primitive["triangle_count"], primitive["unk"] = struct.unpack("<2I",f.read(8))
+                elements = []
+                ibvb = {}
+                buffers = []
+                semantic_index = [0,0,0,0,0,0,0,0] # Counters for multiple indicies (e.g. TEXCOORD1, 2, etc)
+                aligned_byte_offset = 0
+                element_num = 0 # Needed for accurate count in fmt when skipping elements
+                for k in range(primitive["num_of_elements"]):
+                    element = {}
+                    if kuro_ver == 1:
+                        element["type_int"], element["size"], element["stride"] = struct.unpack("<3I",f.read(12))
+                        element["offset"] = f.tell()
+                    elif kuro_ver > 1:
+                        prim_element = [x for x in primitive_info if x['mesh'] == i and x['submesh'] == j][k]
+                        element["type_int"], element["size"], element["stride"], element["offset"] =\
+                            prim_element["type_int"], prim_element["size"], prim_element["stride"], prim_element["offset"]
+                        prim.seek(prim_element["offset"])
+                    element["count"] = int(element["size"]/element["stride"])
+                    # Vertex reading here!!
+                    match element["type_int"]:
+                        case 0:
+                            element["Semantic"] = "POSITION"
+                            element_type = 'f'
+                        case 1:
+                            element["Semantic"] = "NORMAL"
+                            if element["stride"] == 4:
+                                element_type = 'S'
+                            else:
+                                element_type = 'f'
+                        case 2:
+                            element["Semantic"] = "TANGENT"
+                            if element["stride"] == 4:
+                                element_type = 'S'
+                            else:
+                                element_type = 'f'
+                        case 3:
+                            element["Semantic"] = "COLOR"
+                            if element["stride"] == 4:
+                                element_type = 'U'
+                            else:
+                                element_type = 'f'
+                        case 4:
+                            element["Semantic"] = "TEXCOORD"
+                            element_type = 'f'
+                        case 5:
+                            element["Semantic"] = "BLENDWEIGHT"
+                            element_type = 'f'
+                        case 6:
+                            element["Semantic"] = "BLENDINDICES"
+                            element_type = 'I'
+                        case 7:
+                            element["Semantic"] = "TRIANGLES"
+                            element_type = 'I'
+                    element_index = semantic_index[element["type_int"]]
+                    semantic_index[element["type_int"]] += 1
+                    buffer = {}
+                    buffer["stride"] = element["stride"] # Purely for convenience, used later to make fmt
+                    buffer_data = []
+                    match element_type:
+                        case 'f': #32-bit FLOAT
+                            format_colors = ['R32','G32','B32','A32','D32']
+                            for l in range(element["count"]):
+                                if kuro_ver == 1:
+                                    buffer_data.append(struct.unpack("<{0}f".format(int(element["stride"]/4)), f.read(element["stride"])))
+                                elif kuro_ver > 1:
+                                    buffer_data.append(struct.unpack("<{0}f".format(int(element["stride"]/4)), prim.read(element["stride"])))
+                                format_string = "".join(format_colors[0:int(element["stride"]/4)]) + "_FLOAT"
+                        case 'I': #32-bit UINT
+                            format_colors = ['R32','G32','B32','A32','D32']
+                            for l in range(element["count"]):
+                                if kuro_ver == 1:
+                                    buffer_data.append(struct.unpack("<{0}I".format(int(element["stride"]/4)), f.read(element["stride"])))
+                                elif kuro_ver > 1:
+                                    buffer_data.append(struct.unpack("<{0}I".format(int(element["stride"]/4)), prim.read(element["stride"])))
+                                format_string = "".join(format_colors[0:int(element["stride"]/4)]) + "_UINT"
+                        case 'H': #16-bit UINT, not sure this is used by Kuro at all
+                            format_colors = ['R16','G16','B16','A16','D16']
+                            for l in range(element["count"]):
+                                if kuro_ver == 1:
+                                    buffer_data.append(struct.unpack("<{0}H".format(int(element["stride"]/2)), f.read(element["stride"])))
+                                elif kuro_ver > 1:
+                                    buffer_data.append(struct.unpack("<{0}H".format(int(element["stride"]/2)), prim.read(element["stride"])))
+                                format_string = "".join(format_colors[0:int(element["stride"]/2)]) + "_UINT"
+                        case 'U': #8-bit UNORM
+                            if kuro_ver == 2:
+                                format_colors = ['B8','G8','R8','A8'] # Dunno why Kuro 2 has this reversed
+                            else:
+                                format_colors = ['R8','G8','B8','A8']
+                            float_max = ((2**8)-1) #Assuming all UNORM is 8-bit
+                            for l in range(element["count"]):
+                                if kuro_ver == 1:
+                                    buffer_data.append([x / float_max for x in struct.unpack("<{0}B".format(int(element["stride"])), f.read(element["stride"]))])
+                                elif kuro_ver > 1:
+                                    buffer_data.append([x / float_max for x in struct.unpack("<{0}B".format(int(element["stride"])), prim.read(element["stride"]))])
+                                format_string = "".join(format_colors[0:int(element["stride"])]) + "_UNORM"
+                        case 'S': #8-bit SNORM
+                            format_colors = ['R8','G8','B8','A8']
+                            float_max = ((2**(8-1))-1) #Assuming all SNORM is 8-bit
+                            for l in range(element["count"]):
+                                if kuro_ver == 1:
+                                    buffer_data.append([x / float_max for x in struct.unpack("<{0}b".format(int(element["stride"])), f.read(element["stride"]))])
+                                elif kuro_ver > 1:
+                                    buffer_data.append([x / float_max for x in struct.unpack("<{0}b".format(int(element["stride"])), prim.read(element["stride"]))])
+                                format_string = "".join(format_colors[0:int(element["stride"])]) + "_SNORM"
+                    buffer["fmt"] = {"id": str(element_num),
+                        "SemanticName": element["Semantic"],\
+                        "SemanticIndex": str(element_index),\
+                        "Format": format_string,\
+                        "InputSlot": "0",\
+                        "AlignedByteOffset": str(aligned_byte_offset),\
+                        "InputSlotClass": "per-vertex",\
+                        "InstanceDataStepRate": "0"}
+                    if element["type_int"] == 7:
+                        ib = {}
+                        ib["format"] = "DXGI_FORMAT_" + format_string
+                        ib["Buffer"] = []
+                        indices = list(chain.from_iterable(buffer_data))
+                        triangle = []
+                        vertex_num = 0
+                        for l in range(len(indices)):
+                            triangle.append(indices[l])
+                            vertex_num += 1
+                            if vertex_num % 3 == 0:
+                                ib["Buffer"].append(triangle)
+                                triangle = []
+                    else:
+                        # The next two lines makes the buffer fully compatible with lib_fmtibvb
+                        buffer["SemanticName"] = buffer["fmt"]["SemanticName"]
+                        buffer["SemanticIndex"] = buffer["fmt"]["SemanticIndex"]
+                        # If Trim for GPU is on, discard texcoords above the 3rd, and the unknown buffers
+                        if (trim_for_gpu == False) or (element_index < 3 and not element["type_int"] == 3):
+                            aligned_byte_offset += element["stride"]
+                            buffer["Buffer"] = buffer_data
+                            buffers.append(buffer)
+                            element_num += 1
+                    elements.append(element)
+                ibvb["ib"] = ib
+                ibvb["vb"] = buffers
+                mesh_buffers.append(ibvb)                    
+                primitive["Elements"] = elements
+                primitives.append(primitive)
+            mesh_block["primitives"] = primitives
+            mesh_block["node_count"], = struct.unpack("<I",f.read(4))
+            if mesh_block["node_count"] > 0:
+                nodes = []
+                for j in range(mesh_block["node_count"]):
+                    node = {}
+                    node["name"] = read_pascal_string(f).decode("ASCII")
+                    node["matrix"] = [struct.unpack("<4f",f.read(16)), struct.unpack("<4f",f.read(16)),\
+                        struct.unpack("<4f",f.read(16)), struct.unpack("<4f",f.read(16))]
+                    nodes.append(node)
+                mesh_block["nodes"] = nodes
+            mesh_block_collision_data = {}
+            section2 = {} # Collision metadata, thank you to Kyuuhachi for unwinding this data!
+            section2["size"], = struct.unpack("<I", f.read(4))
+            section2["minbound"] = list(struct.unpack("<3f", f.read(12)))
+            section2["unk0"], = struct.unpack("<I", f.read(4))
+            section2["maxbound"] = list(struct.unpack("<3f", f.read(12)))
+            section2["unk1"], = struct.unpack("<I", f.read(4))
+            section2["num_triangles"], = struct.unpack("<I", f.read(4))
+            if section2["num_triangles"] > 0:
+                vert_buffer = []
+                idx_buffer = []
+                for j in range(section2["num_triangles"]):
+                    pos = numpy.array([list(struct.unpack("<3f", f.read(12))) for _ in range(3)])
+                    nrm = numpy.array(struct.unpack("<3f", f.read(12)))
+                    midpoint = list(struct.unpack("<3f", f.read(12)))
+                    radius, = struct.unpack("<f", f.read(4))
+                    # Determine triangle winding order by comparing the calculated normal to the provided one
+                    calc_nrm = numpy.cross(pos[1] - pos[0], pos[2] - pos[0])
+                    calc_nrm = calc_nrm / numpy.linalg.norm(calc_nrm)
+                    wind_order = numpy.dot(calc_nrm, nrm)
+                    vert_buffer.extend(pos.tolist())
+                    if wind_order >= 0:
+                        idx_buffer.append([j*3, j*3+1, j*3+2])
+                    else:
+                        idx_buffer.append([j*3, j*3+2, j*3+1])
+                fmt = {'stride': '12', 'topology': 'trianglelist', 'format': 'DXGI_FORMAT_R32_UINT',\
+                    'elements': [{'id': '0', 'SemanticName': 'POSITION', 'SemanticIndex': '0',\
+                    'Format': 'R32G32B32_FLOAT', 'InputSlot': '0', 'AlignedByteOffset': '0',\
+                    'InputSlotClass': 'per-vertex', 'InstanceDataStepRate': '0'}]}
+                mesh_block_collision_data["collision_mesh"] = {'fmt': fmt,
+                    'ib': idx_buffer, 'vb': [{'Buffer': vert_buffer}]}
+            section2["num_nodes"], = struct.unpack("<I", f.read(4))
+            if section2["num_nodes"] > 0:
+                node_buffer = []
+                for j in range(section2["num_nodes"]):
+                    node = {}
+                    node['min'], node['max'] = [list(struct.unpack("<3f", f.read(12))) for _ in range(2)]
+                    node['start'], node['end'] = struct.unpack("<2i", f.read(8))
+                    node['num_triangles'], = struct.unpack("<I", f.read(4))
+                    if node['num_triangles'] > 0:
+                        node['triangles'] = struct.unpack("<{}I".format(node['num_triangles']), f.read(node['num_triangles']*4))
+                    node_buffer.append(node)
+                mesh_block_collision_data["collision_map"] = node_buffer
+            section2["flags"], = struct.unpack("<I", f.read(4))
+            mesh_block["section2"] = section2
+            mesh_blocks.append(mesh_block)
+            mesh_block_buffers.append(mesh_buffers)
+            mesh_collision_data.append(mesh_block_collision_data)
+        mesh_data = {}
+        mesh_data["mesh_blocks"] = mesh_blocks
+        mesh_data["mesh_buffers"] = mesh_block_buffers
+        mesh_data["mesh_collision_data"] = mesh_collision_data
+    if kuro_ver > 1:
+        prim.close()
+    return(mesh_data)
+
+def isolate_material_data (mdl_data):
+    with io.BytesIO(mdl_data) as f:
+        mdl_header = struct.unpack("<III",f.read(12))
+        if not mdl_header[0] == 0x204c444d:
+            sys.exit()
+        contents = []
+        while True:
+            current_offset = f.tell()
+            section_info = {}
+            try:
+                section_info["type"], section_info["size"] = struct.unpack("<II",f.read(8))
+            except:
+                break
+            section_info["section_start_offset"] = f.tell()
+            contents.append(section_info)
+            f.seek(section_info["size"],1) # Move forward to the next section
+        if len([x for x in contents if x["type"] == 0]) > 0:
+            # Kuro models seem to only have one material section
+            material_section = [x for x in contents if x["type"] == 0][0]
+            f.seek(material_section["section_start_offset"],0)
+            material_section_data = f.read(material_section["size"])
+            return(material_section_data)
+        else:
+            return False
+
+def obtain_material_data (mdl_data):
+    kuro_ver = get_kuro_ver(mdl_data)
+    material_data = isolate_material_data(mdl_data)
+    if material_data == False:
+        return False
+    with io.BytesIO(material_data) as f:
+        blocks, = struct.unpack("<I",f.read(4))
+        material_blocks = []
+        # Materials are not grouped like meshes, but roughly follow the same order
+        for i in range(blocks):
+            material_block = {}
+            material_block['id_referenceonly'] = i # Not used at all for repacking, purely for convenience
+            material_block['material_name'] = read_pascal_string(f).decode("ASCII")
+            material_block['shader_name'] = read_pascal_string(f).decode("ASCII")
+            material_block['str3'] = read_pascal_string(f).decode("ASCII")
+            material_block['shader_switches_hash_referenceonly'] = ''
+            texture_element_count, = struct.unpack("<I",f.read(4))
+            material_block['textures'] = []
+            for j in range(texture_element_count):
+                texture_block = {}
+                texture_block['texture_image_name'] = read_pascal_string(f).decode("ASCII")
+                texture_block['texture_slot'], = struct.unpack("<i",f.read(4))
+                if kuro_ver > 1:
+                    texture_block['unk_00'], = struct.unpack("<i",f.read(4))
+                texture_block['wrapS'], texture_block['wrapT'] = struct.unpack("<2i",f.read(8))
+                if kuro_ver > 1:
+                    texture_block['unk_03'], = struct.unpack("<i",f.read(4))
+                material_block['textures'].append(texture_block)
+            shader_element_count, = struct.unpack("<I",f.read(4))
+            material_block['shaders'] = []
+            for j in range(shader_element_count):
+                shader_block = {}
+                shader_block['shader_name'] = read_pascal_string(f).decode("ASCII")
+                shader_block['type_int'], = struct.unpack("<I",f.read(4))
+                match shader_block['type_int']:
+                    case 0 | 1:
+                        shader_block['data'], = struct.unpack("<I",f.read(4))
+                    case 2:
+                        shader_block['data_base64'] = base64.b64encode(f.read(8)).decode()
+                    case 3:
+                        shader_block['data_base64'] = base64.b64encode(f.read(12)).decode()
+                    case 4:
+                        shader_block['data'], = struct.unpack("<f",f.read(4))
+                    case 5:
+                        shader_block['data'] = list(struct.unpack("<2f",f.read(8)))
+                    case 6:
+                        shader_block['data'] = list(struct.unpack("<3f",f.read(12)))
+                    case 7:
+                        shader_block['data_base64'] = base64.b64encode(f.read(16)).decode()
+                    case 8:
+                        shader_block['data_base64'] = base64.b64encode(f.read(64)).decode()
+                    case 0xFFFFFFFF:
+                        shader_block['data_base64'] = ''
+                material_block['shaders'].append(shader_block)
+            material_switch_count, = struct.unpack("<I",f.read(4))
+            material_block['material_switches'] = []
+            switch_start = f.tell()
+            for j in range(material_switch_count):
+                material_switch_block = {}
+                material_switch_block['material_switch_name'] = read_pascal_string(f).decode("ASCII")
+                material_switch_block['int2'], = struct.unpack("<i",f.read(4))
+                material_block['material_switches'].append(material_switch_block)
+            switch_end = f.tell()
+            f.seek(switch_start,0)
+            material_block['shader_switches_hash_referenceonly'] = xxhash.xxh64_hexdigest(f.read(switch_end - switch_start))
+            uv_map_index_count, = struct.unpack("<I",f.read(4))
+            material_block['uv_map_indices'] = list(struct.unpack("{0}B".format(uv_map_index_count),f.read(uv_map_index_count)))
+            unknown1_count, = struct.unpack("<I",f.read(4))
+            material_block['unknown1'] = list(struct.unpack("{0}B".format(unknown1_count),f.read(unknown1_count)))
+            material_block['unknown2'] = list(struct.unpack("<3IfI",f.read(20)))
+            material_blocks.append(material_block)
+        return(material_blocks)
+
+def make_fmt_struct (mesh_buffers):
+    fmt_struct = {}
+    fmt_struct["stride"] = 0
+    for i in range(len(mesh_buffers['vb'])):
+        fmt_struct["stride"] += mesh_buffers['vb'][i]['stride']
+    fmt_struct["stride"] = str(fmt_struct["stride"])
+    fmt_struct["topology"] = "trianglelist"
+    fmt_struct["format"] = mesh_buffers["ib"]["format"]
+    fmt_struct["elements"] = [x["fmt"] for x in mesh_buffers["vb"]]
+    return(fmt_struct)
+
+def write_fmt_ib_vb (mesh_buffers, filename, node_list = False, complete_maps = False, write_empty_buffers = False):
+    print("Processing submesh {0}...".format(filename))
+    fmt_struct = make_fmt_struct(mesh_buffers)
+    write_fmt(fmt_struct, filename + '.fmt')
+    if len(mesh_buffers['ib']['Buffer']) > 0 or write_empty_buffers == True:
+        write_ib(mesh_buffers['ib']['Buffer'], filename +  '.ib', fmt_struct)
+        write_vb(mesh_buffers['vb'], filename +  '.vb', fmt_struct)
+    if not node_list == False:
+        # Find vertex groups referenced by vertices so that we can cull the empty ones
+        active_nodes = list(set(list(chain.from_iterable([x["Buffer"] for x in mesh_buffers["vb"] \
+            if x["fmt"]["SemanticName"] == 'BLENDINDICES'][0]))))
+        vgmap_json = {}
+        for i in range(len(node_list)):
+            if (i in active_nodes) or (complete_maps == True):
+                vgmap_json[node_list[i]["name"]] = i
+        with open(filename + '.vgmap', 'wb') as f:
+            f.write(json.dumps(vgmap_json, indent=4).encode("utf-8"))
+    return
+
+def process_mdl (mdl_file, complete_maps = complete_vgmaps_default, trim_for_gpu = False, dump_collision_nodes = False, overwrite = False):
+    with open(mdl_file, "rb") as f:
+        mdl_data = f.read()
+    print("Processing {0}...".format(mdl_file))
+    mdl_data = decryptCLE(mdl_data)
+    material_struct = obtain_material_data(mdl_data)
+    material_json_filename = mdl_file[:-4] + '/material_info.json'
+    mesh_struct = obtain_mesh_data(mdl_data, material_struct = material_struct, trim_for_gpu = trim_for_gpu)
+    mesh_json_filename = mdl_file[:-4] + '/mesh_info.json'
+    skel_struct = obtain_skeleton_data(mdl_data)
+    skel_json_filename = mdl_file[:-4] + '/skeleton.json'
+    mdl_version_json_filename = mdl_file[:-4] + '/mdl_version.json'
+    if mesh_struct == False and material_struct == False:
+        print ("Skipping {0} as it lacks mesh and material data.".format(mdl_file))
+        return False
+    image_list = sorted(list(set([x['texture_image_name']+'.dds' for y in material_struct for x in y['textures']])))
+    image_json_filename = mdl_file[:-4] + '/image_list.json'
+    if os.path.exists(mdl_file[:-4]) and (os.path.isdir(mdl_file[:-4])) and (overwrite == False):
+        if str(input(mdl_file[:-4] + " folder exists! Overwrite? (y/N) ")).lower()[0:1] == 'y':
+            overwrite = True
+    if (overwrite == True) or not os.path.exists(mdl_file[:-4]):
+        if not os.path.exists(mdl_file[:-4]):
+            os.mkdir(mdl_file[:-4])
+        with open(mdl_version_json_filename, 'wb') as f:
+            f.write(json.dumps({'mdl_version': get_kuro_ver(mdl_data)}, indent=4).encode("utf-8"))
+        with open(mesh_json_filename, 'wb') as f:
+            f.write(json.dumps(mesh_struct["mesh_blocks"], indent=4).encode("utf-8"))
+        with open(material_json_filename, 'wb') as f:
+            f.write(json.dumps(material_struct, indent=4).encode("utf-8"))
+        with open(image_json_filename, 'wb') as f:
+            f.write(json.dumps(image_list, indent=4).encode("utf-8"))
+        with open(skel_json_filename, 'wb') as f:
+            f.write(json.dumps(skel_struct, indent=4).encode("utf-8"))
+        for i in range(len(mesh_struct["mesh_buffers"])):
+            safe_filename = "".join([x if x not in "\\/:*?<>|" else "_" for x in mesh_struct["mesh_blocks"][i]["name"]])
+            if mesh_struct["mesh_blocks"][i]["node_count"] > 0:
+                node_list = mesh_struct["mesh_blocks"][i]["nodes"]
+            else:
+                node_list = False
+            for j in range(len(mesh_struct["mesh_buffers"][i])):
+                write_fmt_ib_vb(mesh_struct["mesh_buffers"][i][j], mdl_file[:-4] +\
+                    '/{0}_{1}_{2:02d}'.format(i, safe_filename, j),\
+                    node_list = node_list, complete_maps = complete_maps)
+            if "collision_mesh" in mesh_struct["mesh_collision_data"][i]:
+                fmt = mesh_struct["mesh_collision_data"][i]["collision_mesh"]['fmt']
+                write_fmt(fmt, mdl_file[:-4] + '/{0}_{1}_collision.fmt'.format(i, safe_filename))
+                write_ib(mesh_struct["mesh_collision_data"][i]["collision_mesh"]['ib'],
+                    mdl_file[:-4] + '/{0}_{1}_collision.ib'.format(i, safe_filename), fmt)
+                write_vb(mesh_struct["mesh_collision_data"][i]["collision_mesh"]['vb'],
+                    mdl_file[:-4] + '/{0}_{1}_collision.vb'.format(i, safe_filename), fmt)
+            if "collision_map" in mesh_struct["mesh_collision_data"][i] and dump_collision_nodes == True:
+                with open(mdl_file[:-4] + '/{0}_{1}_collision_nodes.json'.format(i, safe_filename), 'wb') as f:
+                    f.write(json.dumps(mesh_struct["mesh_collision_data"][i]["collision_map"], indent=4).encode("utf-8"))
+
+
+# === /mnt/user-data/uploads/kuro_mdl_import_meshes.py ===
+# Tool to manipulate ED9 / Kuro no Kiseki models in mdl format.  Replace mesh section of
+# Kuro no Kiseki mdl file with individual buffers previously exported.  Based on Uyjulian's script.
+# Usage:  Run by itself without commandline arguments and it will read only the mesh section of
+# every model it finds in the folder and replace them with fmt / ib / vb files in the same named
+# directory.
+#
+# For command line options, run:
+# /path/to/python3 kuro_mdl_import_meshes.py --help
+#
+# Requires both blowfish and zstandard for CLE assets.
+# These can be installed by:
+# /path/to/python3 -m pip install blowfish zstandard
+#
+# GitHub eArmada8/kuro_mdl_tool
+
+
+def compressCLE(file_content):
+    magic = file_content[0:4]
+    compressed_magic = b"D9BA"
+    result = file_content
+    if not magic == compressed_magic: # Don't compress files that are already compressed:
+        compressor = zstandard.ZstdCompressor(level = 12, write_checksum = True)
+        result = compressor.compress(file_content)
+        while (len(result) % 8) > 0:
+            result += b'\x00'
+        result = compressed_magic + struct.pack("<I", len(result)) + result
+    return result
+
+def make_pascal_string(string):
+    return struct.pack("<B", len(string)) + string.encode("utf8")
+
+# Primitive data is in Kuro 2.  In Kuro 1, it will be an empty buffer.
+# force_kuro_version should be either set to False, or to an integer.
+def insert_model_data (mdl_data, skeleton_section_data, material_section_data, mesh_section_data, primitive_section_data, kuro_ver):
+    with io.BytesIO(mdl_data) as f:
+        new_mdl_data = f.read(4) #Header
+        orig_kuro_ver, = struct.unpack("<I", f.read(4))
+        kuro_ver = min(kuro_ver, orig_kuro_ver)
+        new_mdl_data += struct.pack("<I", kuro_ver)
+        new_mdl_data += f.read(4) #Not sure what this is in the header
+        while True:
+            current_offset = f.tell()
+            section = f.read(8)
+            section_info = {}
+            try:
+                section_info["type"], section_info["size"] = struct.unpack("<II",section)
+                section += f.read(section_info["size"])
+            except:
+                break
+            if section_info["type"] == 0: # Material section to replace
+                section = material_section_data
+            if section_info["type"] == 1: # Mesh section to replace
+                section = mesh_section_data
+            if section_info["type"] == 2: # Skeleton section to replace
+                section = skeleton_section_data
+            if section_info["type"] == 4: # Primitive section to replace
+                if kuro_ver > 1:
+                    section = primitive_section_data
+                else: # Needed if we are forcing downgrade to version 1
+                    section = b''
+            new_mdl_data += section
+        # Catch the null bytes at the end of the stream
+        f.seek(current_offset,0)
+        new_mdl_data += f.read()
+        return(new_mdl_data)
+
+def build_skeleton_struct_from_mdl (mdl_filename):
+    # Will read data from JSON file, or load original data from the mdl file if JSON is missing
+    try:
+        skel_struct = read_struct_from_json(mdl_filename + "/skeleton.json")
+    except:
+        print("{0}/skeleton.json missing or unreadable, reading data from {0}.mdl instead...".format(mdl_filename))
+        with open(mdl_filename + '.mdl', "rb") as f:
+            mdl_data = f.read()
+        mdl_data = decryptCLE(mdl_data)
+        skel_struct = obtain_skeleton_data(mdl_data)
+    return(skel_struct)
+
+def build_skeleton_section (skel_struct):
+    output_buffer = struct.pack("<I", len(skel_struct))
+    for i in range(len(skel_struct)):
+        output_buffer += make_pascal_string(skel_struct[i]['name'])
+        output_buffer += struct.pack("<Ii", skel_struct[i]['type'], skel_struct[i]['mesh_index'])
+        output_buffer += struct.pack("<3f", *skel_struct[i]['pos_xyz'])
+        output_buffer += struct.pack("<4f", *skel_struct[i]['unknown_quat'])
+        output_buffer += struct.pack("<I", skel_struct[i]['skin_mesh'])
+        output_buffer += struct.pack("<3f", *skel_struct[i]['rotation_euler_rpy'])
+        output_buffer += struct.pack("<3f", *skel_struct[i]['scale'])
+        output_buffer += struct.pack("<3f", *skel_struct[i]['unknown'])
+        output_buffer += struct.pack("<I", len(skel_struct[i]['children']))
+        output_buffer += struct.pack("<{}I".format(len(skel_struct[i]['children'])), *skel_struct[i]['children'])
+    return(struct.pack("<2I", 2, len(output_buffer)) + output_buffer)
+
+def build_material_section (mdl_filename, material_list = [], kuro_ver = 1):
+    # Will read data from JSON file, or load original data from the mdl file if JSON is missing
+    try:
+        raw_material_struct = read_struct_from_json(mdl_filename + "/material_info.json")
+    except:
+        print("{0}/material_info.json missing or unreadable, reading data from {0}.mdl instead...".format(mdl_filename))
+        with open(mdl_filename + '.mdl', "rb") as f:
+            mdl_data = f.read()
+        mdl_data = decryptCLE(mdl_data)
+        raw_material_struct = obtain_material_data(mdl_data)
+    material_struct = []
+    try:
+        materials = [x['material_name'] for x in raw_material_struct]
+        for material in material_list:
+            material_struct.append(raw_material_struct[materials.index(material)])
+    except ValueError:
+        print("ValueError: Attempted to add material {0} it does not exist in material_info.json!".format(material))
+        input("Press Enter to abort.")
+        raise
+    output_buffer = struct.pack("<I", len(material_struct))
+    for i in range(len(material_struct)):
+        material_block = make_pascal_string(material_struct[i]['material_name']) \
+            + make_pascal_string(material_struct[i]['shader_name']) \
+            + make_pascal_string(material_struct[i]['str3'])
+        texture_blocks = bytes()
+        texture_block_count = 0
+        for j in range(len(material_struct[i]['textures'])):
+            texture_blocks += make_pascal_string(material_struct[i]['textures'][j]['texture_image_name']) \
+                + struct.pack("<i", material_struct[i]['textures'][j]['texture_slot'])
+            if kuro_ver > 1:
+                texture_blocks += struct.pack("<i", material_struct[i]['textures'][j]['unk_00'])
+            texture_blocks += struct.pack("<2i", material_struct[i]['textures'][j]['wrapS'], material_struct[i]['textures'][j]['wrapT'])
+            if kuro_ver > 1:
+                texture_blocks += struct.pack("<i", material_struct[i]['textures'][j]['unk_03'])
+            texture_block_count += 1
+        material_block += struct.pack("<I", texture_block_count) + texture_blocks
+        shader_elements = bytes()
+        shader_element_count = 0
+        for j in range(len(material_struct[i]['shaders'])):
+            if material_struct[i]['shaders'][j]['type_int'] in [0,1,4,5,6]: # These are decoded, so need to be encoded
+                struct_dict = {0: "<I", 1: "<I", 4: "<f", 5: "<2f", 6: "<3f"}
+                shader_elements += make_pascal_string(material_struct[i]['shaders'][j]['shader_name']) \
+                    + struct.pack("<I", material_struct[i]['shaders'][j]['type_int'])
+                if type(material_struct[i]['shaders'][j]['data']) == list:
+                    shader_elements += struct.pack(struct_dict[material_struct[i]['shaders'][j]['type_int']], *material_struct[i]['shaders'][j]['data'])
+                else:
+                    shader_elements += struct.pack(struct_dict[material_struct[i]['shaders'][j]['type_int']], material_struct[i]['shaders'][j]['data'])
+            else:
+                shader_elements += make_pascal_string(material_struct[i]['shaders'][j]['shader_name']) \
+                    + struct.pack("<I", material_struct[i]['shaders'][j]['type_int']) \
+                    + base64.b64decode(material_struct[i]['shaders'][j]['data_base64'])
+            shader_element_count += 1
+        material_block += struct.pack("<I", shader_element_count) + shader_elements
+        material_switches = bytes()
+        material_switch_count = 0
+        for j in range(len(material_struct[i]['material_switches'])):
+            material_switches += make_pascal_string(material_struct[i]['material_switches'][j]['material_switch_name']) \
+                + struct.pack("<i", material_struct[i]['material_switches'][j]['int2'])
+            material_switch_count += 1
+        material_block += struct.pack("<I", material_switch_count) + material_switches
+        material_block += struct.pack("<I{0}B".format(len(material_struct[i]['uv_map_indices'])), len(material_struct[i]['uv_map_indices']), *material_struct[i]['uv_map_indices'])
+        material_block += struct.pack("<I{0}B".format(len(material_struct[i]['unknown1'])), len(material_struct[i]['unknown1']), *material_struct[i]['unknown1'])
+        material_block += struct.pack("<3IfI", *material_struct[i]['unknown2'])
+        output_buffer += material_block
+    return(struct.pack("<2I", 0, len(output_buffer)) + output_buffer)
+
+# Calculate the normal vector for a collision mesh triangle.
+def triangle_normal(pos_vector):
+    pos = numpy.array(pos_vector)
+    calc_nrm = numpy.cross(pos[1] - pos[0], pos[2] - pos[0])
+    calc_nrm = calc_nrm / numpy.linalg.norm(calc_nrm)
+    return calc_nrm
+
+# Calculate the circumsphere for a collision mesh triangle.  This function is written by chatgpt.
+# Gratitude and credit to chatgpt and all the code that went into its training and their authors.
+def circumsphere(pos_vector):
+    pos = numpy.array(pos_vector)
+
+    if numpy.dot(pos[1] - pos[0], pos[2] - pos[0]) <= 0: return (pos[1] + pos[2]) / 2, numpy.linalg.norm(pos[1] - pos[2]) / 2
+    if numpy.dot(pos[0] - pos[1], pos[2] - pos[1]) <= 0: return (pos[0] + pos[2]) / 2, numpy.linalg.norm(pos[0] - pos[2]) / 2
+    if numpy.dot(pos[0] - pos[2], pos[1] - pos[2]) <= 0: return (pos[0] + pos[1]) / 2, numpy.linalg.norm(pos[0] - pos[1]) / 2
+
+    # For an acute triangle, we must compute the circumcenter.
+    # First, construct an orthonormal basis (u, v) for the plane of the triangle.
+    u = pos[1] - pos[0]
+    u = u / numpy.linalg.norm(u)
+    # The normal to the plane
+    normal = numpy.cross(pos[1] - pos[0], pos[2] - pos[0])
+    normal = normal / numpy.linalg.norm(normal)
+    # The in-plane vector perpendicular to u
+    v = numpy.cross(normal, u)
+
+    # Project points pos[1] and pos[2] onto the (u,v) coordinate system with pos[0] as the origin.
+    pB = numpy.array([numpy.linalg.norm(pos[1] - pos[0]), 0])
+    pC = numpy.array([numpy.dot(pos[2] - pos[0], u), numpy.dot(pos[2] - pos[0], v)])
+
+    # Solve for the circumcenter in 2D.
+    # The perpendicular bisector of the segment from (0,0) to pB has the equation:
+    #   pB[0]*x + pB[1]*y = 0.5 * (||pB||^2)
+    # Similarly for the segment from (0,0) to pC.
+    M = numpy.array([[pB[0], pB[1]], [pC[0], pC[1]]])
+    b_vec = numpy.array([0.5 * numpy.dot(pB, pB), 0.5 * numpy.dot(pC, pC)])
+
+    # Solve the linear system to get the 2D circumcenter coordinates (x, y)
+    circumcenter_2d = numpy.linalg.solve(M, b_vec)
+
+    # Map the 2D circumcenter back to 3D
+    center = pos[0] + circumcenter_2d[0] * u + circumcenter_2d[1] * v
+    radius = numpy.linalg.norm(center - pos[0])
+
+    return (center, radius)
+
+# Takes a collision mesh struct with raw buffers and outputs the triangles in the format the Kuro engine expects
+def generate_triangle_struct(mesh_struct):
+    triangle_struct = []
+    posidx = [x['SemanticName'] for x in mesh_struct['vb']].index('POSITION')
+    for i in range(len(mesh_struct['ib'])):
+        pos_vector = [mesh_struct['vb'][posidx]['Buffer'][j] for j in mesh_struct['ib'][i]]
+        nrm_vector = triangle_normal(pos_vector)
+        midpoint, radius = circumsphere(pos_vector)
+        triangle = {'pos': pos_vector, 'nrm': nrm_vector.tolist(), 'midpoint': midpoint.tolist(), 'radius': radius.tolist()}
+        triangle_struct.append(triangle)
+    return triangle_struct
+
+# This is specifically for constructing the BVH tree, and takes a triangle struct in the collision mesh format
+def bounding_box (triangles):
+    x = [x[0] for y in triangles for x in y[1]['pos']]
+    y = [x[1] for y in triangles for x in y[1]['pos']]
+    z = [x[2] for y in triangles for x in y[1]['pos']]
+    return([[min(x), min(y), min(z)], [max(x), max(y), max(z)]])
+
+class BVHNode:  # Self-running recursive class to build a bounding volume hierarchy node tree
+    def __init__(self, triangles, max_per_node = 2):
+        self.bounds = bounding_box(triangles)
+        self.children = []  # Always 0 or 2 elements
+        self.tri_indices = []  # Stores indices of triangles
+        if len(triangles) > max_per_node:
+            axis_len = list(enumerate([max([x[1]['midpoint'][0] for x in triangles]) - min([x[1]['midpoint'][0] for x in triangles]),
+                max([x[1]['midpoint'][1] for x in triangles]) - min([x[1]['midpoint'][1] for x in triangles]),
+                max([x[1]['midpoint'][2] for x in triangles]) - min([x[1]['midpoint'][2] for x in triangles])]))
+            a = [x[0] for x in sorted(axis_len, key = lambda e: e[1], reverse = True)] # Axes longest to shortest
+            sorted_triangles = sorted(triangles, key = lambda x: (x[1]['midpoint'][a[0]], x[1]['midpoint'][a[1]], x[1]['midpoint'][a[2]]))
+            set1 = sorted_triangles[:len(sorted_triangles)//2]
+            set2 = sorted_triangles[len(sorted_triangles)//2:]
+            self.children = [BVHNode(set1, max_per_node), BVHNode(set2, max_per_node)]
+        else:
+            self.tri_indices = [x[0] for x in triangles]
+
+# node is of type BVHNode class, run with root node
+def add_node_to_BVH_list (node, node_list = [{}], i = 0): # i is current node
+    node_list[i]['min'] = node.bounds[0]
+    node_list[i]['max'] = node.bounds[1]
+    if len(node.children) > 0:
+        node_list[i]['start'] = len(node_list)
+        node_list[i]['end'] = len(node_list) + len(node.children) - 1
+        node_list[i]['triangles'] = []
+        new_children_indices = []
+        for j in range(len(node.children)):
+            new_children_indices.append(len(node_list))
+            node_list.append({})
+        for j in range(len(node.children)):
+            node_list = add_node_to_BVH_list(node.children[j], node_list, new_children_indices[j])
+    else:
+        node_list[i]['start'] = -1
+        node_list[i]['end'] = -1
+        node_list[i]['triangles'] = node.tri_indices
+    return(node_list)
+
+def triangle_struct_to_bvh_node_list (triangle_struct):
+    return (add_node_to_BVH_list(BVHNode(list(enumerate(triangle_struct))), [{}], 0))
+
+def build_mesh_section (mdl_filename, kuro_ver = 1):
+    # Ordinarily we do not need to parse the original file, but in case we do, we only want to do it once
+    has_parsed_original_file = False
+    try:
+        mesh_struct_metadata = read_struct_from_json(mdl_filename + "/mesh_info.json")
+    except:
+        print("{0}/mesh_info.json missing or unreadable, reading data from {0}.mdl instead...".format(mdl_filename))
+        with open(mdl_filename + '.mdl', "rb") as f:
+            mdl_data = f.read()
+        mdl_data = decryptCLE(mdl_data)
+        mesh_struct = obtain_mesh_data(mdl_data, obtain_material_data(mdl_data))
+        has_parsed_original_file = True
+        mesh_struct_metadata = mesh_struct["mesh_blocks"]
+    output_buffer = struct.pack("<I", len(mesh_struct_metadata))
+    material_list = []
+    if kuro_ver > 1:
+        prim_output_header = bytes()
+        prim_output_data = bytes()
+        prim_buffer_count = 0
+    for i in range(len(mesh_struct_metadata)):
+        mesh_block = bytes()
+        meshes = 0 # Keep count of actual meshes imported, in case some have been deleted
+        safe_filename = "".join([x if x not in "\\/:*?<>|" else "_" for x in mesh_struct_metadata[i]["name"]])
+        if "nodes" in mesh_struct_metadata[i].keys():
+            expected_vgmap = {mesh_struct_metadata[i]['nodes'][j]['name']:j for j in range(len(mesh_struct_metadata[i]['nodes']))}
+        else:
+            expected_vgmap = {}
+        # Initialize bounding box - I have no idea why this works, but it does.
+        bbox = {'min_x': True, 'min_y': True, 'min_z': True, 'max_x': False, 'max_y': False, 'max_z': False}
+        for j in range(len(mesh_struct_metadata[i]["primitives"])):
+            try:
+                mesh_filename = mdl_filename + '/{0}_{1}_{2:02d}'.format(i, safe_filename, j)
+                fmt = read_fmt(mesh_filename + '.fmt')
+                ib = list(chain.from_iterable(read_ib(mesh_filename + '.ib', fmt)))
+                vb = read_vb(mesh_filename + '.vb', fmt)
+            except FileNotFoundError:
+                if kuro_ver > 1:
+                    print("Submesh {0} not found, generating an empty submesh...".format(mesh_filename))
+                    if has_parsed_original_file == False:
+                        with open(mdl_filename + '.mdl', "rb") as f:
+                            mdl_data = f.read()
+                        mdl_data = decryptCLE(mdl_data)
+                        mesh_struct = obtain_mesh_data(mdl_data, obtain_material_data(mdl_data))
+                        has_parsed_original_file = True
+                    # Generate an empty submesh
+                    fmt = make_fmt_struct(mesh_struct["mesh_buffers"][i][j])
+                    ib = []
+                    vb = mesh_struct["mesh_buffers"][i][j]['vb']
+                else:
+                    print("Submesh {0} not found, skipping...".format(mesh_filename))
+                    continue
+            print("Processing submesh {0}...".format(mesh_filename))
+            # VGMap sanity check - Make sure the .vgmap file matches the actual skin node tree
+            try:
+                vgmap = read_struct_from_json(mesh_filename + '.vgmap')
+                if not (all([True if x in expected_vgmap else False for x in vgmap])\
+                    and all([expected_vgmap[x] == vgmap[x] for x in vgmap])):
+                    print("Warning! {}.vgmap does not match the internal skin node tree!".format(mesh_filename))
+                    rev_vgmap = {vgmap[k]:k for k in vgmap}
+                    semantics = [x['SemanticName'] for x in vb]
+                    if 'BLENDINDICES' in semantics and ('BLENDWEIGHT' in semantics or 'BLENDWEIGHTS' in semantics):
+                        vg_index = semantics.index('BLENDINDICES')
+                        if 'BLENDWEIGHT' in semantics:
+                            wt_index = semantics.index('BLENDWEIGHT')
+                        else:
+                            wt_index = semantics.index('BLENDWEIGHTS')
+                        indices = [x for y in vb[vg_index]['Buffer'] for x in y]
+                        weights = [x for y in vb[wt_index]['Buffer'] for x in y]
+                        true_indices = sorted(list(set([indices[k] for k in range(len(indices)) if weights[k] > 0.0])))
+                        used_vg = [rev_vgmap[z] for z in true_indices]
+                        if all([x in expected_vgmap.keys() for x in used_vg]):
+                            print("VGMap appears compatible, attempting automatic remap...")
+                            new_buffer = []
+                            for k in range(len(vb[vg_index]['Buffer'])):
+                                new_buffer.append([expected_vgmap[y] if y in expected_vgmap else 0 for y \
+                                    in [rev_vgmap[z] for z in vb[vg_index]['Buffer'][k]]])
+                            vb[vg_index]['Buffer'] = new_buffer
+                        else:
+                            print("VGMap incompatible with this mesh, automatic remap not possible.")
+                            print("This model will likely have major animation distortions and may crash the game.")
+                            input("Press Enter to continue.")
+                    else:
+                        pass # No weights, sanity check unnecessary
+            except FileNotFoundError:
+                if len(expected_vgmap) > 1:
+                    print("{}.vgmap not found, vertex group sanity check skipped.".format(mesh_filename))
+            if mesh_struct_metadata[i]["primitives"][j]["material"] in material_list:
+                primitive_buffer = struct.pack("<I", material_list.index(mesh_struct_metadata[i]["primitives"][j]["material"]))
+            else:
+                primitive_buffer = struct.pack("<I", len(material_list))
+                material_list.append(mesh_struct_metadata[i]["primitives"][j]["material"])
+            num_texcoord = len([x for x in fmt["elements"] if x["SemanticName"] == "TEXCOORD"])
+            primitive_buffer_elements = len(vb)+1 # vb+ib
+            if kuro_ver <= 2 and num_texcoord in [1,2]: # Increase texcoord to 3, required by Kuro 1 (&2?)
+                primitive_buffer_elements += 3 - num_texcoord
+            if kuro_ver == 1:
+                primitive_buffer += struct.pack("<I", primitive_buffer_elements)
+            elif kuro_ver > 1:
+                primitive_buffer += struct.pack("<2I", len(ib), mesh_struct_metadata[i]["primitives"][j]["unk"])
+            texcoord_counter = 0
+            for k in range(len(vb)):
+                dxgi_format = fmt["elements"][k]["Format"].split('DXGI_FORMAT_')[-1]
+                dxgi_format_split = dxgi_format.split('_')
+                vec_type = dxgi_format_split[1]
+                vec_format = re.findall("[0-9]+",dxgi_format_split[0])
+                vec_first_color = dxgi_format_split[0][0] # Should be R in most cases, but will be B if format is B8G8R8A8_UNORM
+                vec_elements = len(vec_format)
+                vec_stride = int(int(vec_format[0]) * vec_elements / 8)
+                reverse_colors = False # COLOR is BGR in Kuro 2
+                eval_buffer_len = False # Normal and Tangent may need buffer length change
+                match vb[k]["SemanticName"]:
+                    case "POSITION":
+                        type_int = 0
+                        #Bounding box
+                        bbox_min = [min(x[0] for x in vb[k]["Buffer"]),
+                            min(x[1] for x in vb[k]["Buffer"]),
+                            min(x[2] for x in vb[k]["Buffer"])]
+                        bbox_max = [max(x[0] for x in vb[k]["Buffer"]),
+                            max(x[1] for x in vb[k]["Buffer"]),
+                            max(x[2] for x in vb[k]["Buffer"])]
+                        bbox['min_x'] = min(bbox['min_x'], bbox_min[0])
+                        bbox['min_y'] = min(bbox['min_y'], bbox_min[1])
+                        bbox['min_z'] = min(bbox['min_z'], bbox_min[2])
+                        bbox['max_x'] = max(bbox['max_x'], bbox_max[0])
+                        bbox['max_y'] = max(bbox['max_y'], bbox_max[1])
+                        bbox['max_z'] = max(bbox['max_z'], bbox_max[2])
+                    case "NORMAL":
+                        type_int = 1
+                        eval_buffer_len = True
+                    case "TANGENT":
+                        type_int = 2
+                        eval_buffer_len = True
+                    case "COLOR":
+                        type_int = 3
+                        if kuro_ver == 1: # Forcing 32-bit float since Kuro 1 uses float
+                            if vec_first_color == 'B':
+                                reverse_colors = True
+                            vec_type = 'FLOAT'
+                            vec_stride = 4 * vec_elements
+                        elif kuro_ver > 1: # Forcing 8-bit unorm since MDL v2 and up use 8-bit UNORM
+                            if vec_first_color == 'R' and kuro_ver == 2: # Kuro 2 uses BGRA instead of RGBA
+                                reverse_colors = True
+                            elif vec_first_color == 'B' and not kuro_ver == 2:
+                                reverse_colors = True
+                            vec_type = 'UNORM'
+                            vec_stride = vec_elements
+                    case "TEXCOORD":
+                        type_int = 4
+                        texcoord_counter += 1 # This will be 1 for TEXCOORD0, 2 for TEXCOORD1, etc
+                    case "BLENDWEIGHT" | "BLENDWEIGHTS":
+                        type_int = 5
+                    case "BLENDINDICES":
+                        type_int = 6
+                if reverse_colors == True and vec_elements == 4: # vec_elements should ALWAYS be 4 with COLOR, but just in case
+                    current_buffer = [[x[2],x[1],x[0],x[3]] for x in vb[k]["Buffer"]]
+                else:
+                    current_buffer = vb[k]["Buffer"]
+                if eval_buffer_len == True and type_int in [1,2]: # Only eval for Normal, Tangent
+                    if kuro_ver <= 2 : # Forcing 32-bit float since Kuro 1 uses float
+                        vec_type, vec_elements, vec_stride = 'FLOAT', 3, 12
+                        current_buffer = [x[0:3] for x in vb[k]["Buffer"]]
+                    elif kuro_ver > 2: # Forcing 8-bit VEC4
+                        vec_type, vec_elements, vec_stride = 'SNORM', 4, 4
+                        if len(vb[k]["Buffer"][0]) < 4:
+                            current_buffer = [x[0:3]+[0.0]*(4-len(vb[k]["Buffer"][0])) for x in vb[k]["Buffer"]]
+                        else:
+                            current_buffer = vb[k]["Buffer"]
+                match vec_type:
+                    case "FLOAT":
+                        element_type = 'f'
+                        data_list = list(chain.from_iterable(current_buffer))
+                    case "UINT":
+                        element_type = 'I' # Assuming 32-bit since Kuro models all use 32-bit
+                        data_list = list(chain.from_iterable(current_buffer))
+                    case "UNORM":
+                        element_type = 'B'
+                        float_max = ((2**8)-1)
+                        data_list = [int(round(min(max(x,0), 1) * float_max)) for x in list(chain.from_iterable(current_buffer))]
+                    case "SNORM":
+                        element_type = 'b'
+                        float_max = ((2**(8-1))-1)
+                        data_list = [int(round(min(max(x,-1), 1) * float_max)) for x in list(chain.from_iterable(current_buffer))]
+                raw_buffer = struct.pack("<{0}{1}".format(len(data_list), element_type), *data_list)
+                if kuro_ver == 1:
+                    primitive_buffer += struct.pack("<3I", type_int, len(raw_buffer), vec_stride) + raw_buffer
+                elif kuro_ver > 1:
+                    prim_output_header += struct.pack("<5I", type_int, len(raw_buffer), vec_stride, i, j)
+                    prim_output_data += raw_buffer
+                    prim_buffer_count += 1
+                # Minimum 3 texcoord, required by Kuro 1 (&2?)
+                if kuro_ver <= 2 and type_int == 4 and num_texcoord in [1,2] and texcoord_counter == num_texcoord:
+                    for l in range(3 - num_texcoord):
+                        if kuro_ver == 1:
+                            primitive_buffer += struct.pack("<3I", type_int, len(raw_buffer), vec_stride) + raw_buffer
+                        elif kuro_ver > 1:
+                            prim_output_header += struct.pack("<5I", type_int, len(raw_buffer), vec_stride, i, j)
+                            prim_output_data += raw_buffer
+                            prim_buffer_count += 1
+            # After VB, need to add IB
+            # Making assumptions here that it will always be in Rxx_UINT format, saves a bunch of code
+            vec_stride = int(int(re.findall("[0-9]+",fmt["format"].split('DXGI_FORMAT_')[-1].split('_')[0])[0]) / 8)
+            raw_ibuffer = struct.pack("<{0}I".format(len(ib), element_type), *ib)
+            if kuro_ver == 1:
+                primitive_buffer += struct.pack("<3I", 7, len(raw_ibuffer), vec_stride) + raw_ibuffer
+            elif kuro_ver > 1:
+                prim_output_header += struct.pack("<5I", 7, len(raw_ibuffer), vec_stride, i, j)
+                prim_output_data += raw_ibuffer
+                prim_buffer_count += 1
+            mesh_block += primitive_buffer
+            meshes += 1
+        mesh_block = struct.pack("<I", meshes) + mesh_block
+        if "nodes" in mesh_struct_metadata[i].keys():
+            node_count = len(mesh_struct_metadata[i]["nodes"])
+        else:
+            node_count = 0
+        node_block = struct.pack("<I", node_count)
+        if node_count > 0:
+            for j in range(node_count):
+                node_block += make_pascal_string(mesh_struct_metadata[i]["nodes"][j]["name"])
+                node_block += struct.pack("<16f", *list(chain.from_iterable(mesh_struct_metadata[i]["nodes"][j]["matrix"])))
+        mesh_block += node_block
+        if "data" in mesh_struct_metadata[i]["section2"]: # Legacy mode
+            raw_section2 = struct.pack("<3fI3f4I", *mesh_struct_metadata[i]["section2"]["data"])
+        else: # Decoded data
+            collision_present = True
+            try:
+                mesh_filename = mdl_filename + '/{0}_{1}_collision'.format(i, safe_filename)
+                fmt = read_fmt(mesh_filename + '.fmt')
+                ib = read_ib(mesh_filename + '.ib', fmt)
+                vb = read_vb(mesh_filename + '.vb', fmt)
+            except FileNotFoundError:
+                collision_present = False
+            if collision_present:
+                triangle_struct = generate_triangle_struct({'fmt': fmt, 'ib': ib, 'vb': vb})
+                node_list = triangle_struct_to_bvh_node_list(triangle_struct)
+                # I think I could just read the root node for the bounding box
+                # because collision and visible meshes are separated, but just in case...
+                bbox['min_x'] = min(bbox['min_x'], node_list[0]['min'][0])
+                bbox['min_y'] = min(bbox['min_y'], node_list[0]['min'][1])
+                bbox['min_z'] = min(bbox['min_z'], node_list[0]['min'][2])
+                bbox['max_x'] = max(bbox['max_x'], node_list[0]['max'][0])
+                bbox['max_y'] = max(bbox['max_y'], node_list[0]['max'][1])
+                bbox['max_z'] = max(bbox['max_z'], node_list[0]['max'][2])
+            raw_section2 = bytearray(struct.pack("<3fI3fI", bbox['min_x'], bbox['min_y'], bbox['min_z'],
+                mesh_struct_metadata[i]["section2"]["unk0"],
+                bbox['max_x'], bbox['max_y'],bbox['max_z'],
+                mesh_struct_metadata[i]["section2"]["unk1"]))
+            if collision_present:
+                raw_section2.extend(struct.pack("<I", len(triangle_struct)))
+                for j in range(len(triangle_struct)):
+                    raw_section2.extend(struct.pack("<16f",
+                        *[x for y in triangle_struct[j]['pos'] for x in y],
+                        *triangle_struct[j]['nrm'],
+                        *triangle_struct[j]['midpoint'],
+                        triangle_struct[j]['radius']))
+                raw_section2.extend(struct.pack("<I", len(node_list)))
+                for j in range(len(node_list)):
+                    raw_section2.extend(struct.pack("<6f2iI{}I".format(len(node_list[j]['triangles'])),
+                        *node_list[j]['min'],
+                        *node_list[j]['max'],
+                        node_list[j]['start'],
+                        node_list[j]['end'],
+                        len(node_list[j]['triangles']),
+                        *node_list[j]['triangles']))
+            else:
+                raw_section2.extend(struct.pack("<2I", 0, 0))
+            raw_section2.extend(struct.pack("<I", mesh_struct_metadata[i]["section2"]["flags"]))
+        section2_block = struct.pack("<I", len(raw_section2)) + bytes(raw_section2)
+        mesh_block = make_pascal_string(mesh_struct_metadata[i]["name"]) + struct.pack("<I", len(mesh_block)) + mesh_block + section2_block
+        output_buffer += mesh_block
+        mesh_section_buffer = struct.pack("<2I", 1, len(output_buffer)) + output_buffer
+        primitive_section_buffer = bytes()
+        if kuro_ver > 1: # Primitives in a separate section #4
+            primitive_output_buffer = struct.pack("<I", prim_buffer_count) + prim_output_header + prim_output_data
+            primitive_section_buffer += struct.pack("<2I", 4, len(primitive_output_buffer)) + primitive_output_buffer
+    return(mesh_section_buffer, primitive_section_buffer, material_list)
+
+def process_mdl_import (mdl_file, change_compression = False, force_kuro_version = False):
+    with open(mdl_file, "rb") as f:
+        mdl_data = f.read()
+    print("Processing {0}...".format(mdl_file))
+    if mdl_data[0:4] in [b"F9BA", b"C9BA", b"D9BA"]:
+        compressed = True
+        mdl_data = decryptCLE(mdl_data)
+    else:
+        compressed = False
+    if obtain_material_data(mdl_data) == False:
+        print("Skipping {0} as it is not a model file.".format(mdl_file))
+        return False
+    kuro_ver = get_kuro_ver(mdl_data)
+    try: # Attempt to get MDL version from JSON file, if this fails just use version number embedded in MDL
+        json_kuro_ver = read_struct_from_json(mdl_file[:-4] + '/mdl_version.json')['mdl_version']
+        if json_kuro_ver > 0 and json_kuro_ver <= kuro_ver:
+            kuro_ver = json_kuro_ver
+    except:
+        print("{0}/mdl_version.json missing or unreadable, reading data from {0}.mdl instead...".format(mdl_file[:-4]))
+    # Command line option overrides JSON file
+    if force_kuro_version != False and force_kuro_version < kuro_ver:
+        kuro_ver = force_kuro_version
+    skeleton_data = build_skeleton_section(build_skeleton_struct_from_mdl(mdl_file[:-4]))
+    mesh_data, primitive_data, material_list = build_mesh_section(mdl_file[:-4], kuro_ver = kuro_ver)
+    material_data = build_material_section(mdl_file[:-4], material_list, kuro_ver)
+    new_mdl_data = insert_model_data(mdl_data, skeleton_data, material_data, mesh_data, primitive_data, kuro_ver)
+    # Instead of overwriting backups, it will just tag a number onto the end
+    backup_suffix = ''
+    if os.path.exists(mdl_file + '.bak' + backup_suffix):
+        backup_suffix = '1'
+        if os.path.exists(mdl_file + '.bak' + backup_suffix):
+            while os.path.exists(mdl_file + '.bak' + backup_suffix):
+                backup_suffix = str(int(backup_suffix) + 1)
+        shutil.copy2(mdl_file, mdl_file + '.bak' + backup_suffix)
+    else:
+        shutil.copy2(mdl_file, mdl_file + '.bak')
+    if (compressed == True and change_compression == False) or (compressed == False and change_compression == True):
+        new_mdl_data = compressCLE(new_mdl_data)
+    with open(mdl_file,'wb') as f:
+        f.write(new_mdl_data)
+
+
+
+# ===========================================================================
+# END EMBEDDED LIBRARY CODE
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+LOG = logging.getLogger("kuro_mdl_rename")
+
+
+class _StripAnsiFormatter(logging.Formatter):
+    """Drop ANSI SGR escape sequences from the formatted message. Used for
+    the log FILE always, and for the CONSOLE when --no-color is active."""
+    def format(self, record):
+        return _ANSI_ESCAPE_RE.sub("", super().format(record))
+
+
+class _ConsoleColorFormatter(logging.Formatter):
+    """Console formatter for the colored case.
+
+    Two layers of color:
+      * Anything inline in the message (added by us via _c() / _green() / etc.)
+        passes through verbatim and renders via colorama.
+      * Warnings and errors additionally get a level-color wrapper around the
+        whole line (yellow / red) so they stand out even when the message has
+        no inline color of its own. We do NOT wrap INFO messages -- the
+        inline ANSI we put in them would get cut off at the inner reset.
+    """
+    LEVEL_COLORS = {
+        logging.WARNING: Fore.YELLOW,
+        logging.ERROR: Fore.RED,
+        logging.CRITICAL: Fore.RED + Style.BRIGHT,
+    }
+
+    def format(self, record):
+        base = super().format(record)
+        color = self.LEVEL_COLORS.get(record.levelno)
+        if color:
+            return color + base + Style.RESET_ALL
+        return base
+
+
+def setup_logging(log_path, verbose=False, no_color=False):
+    """Configure the package logger to write a plain log file plus a
+    (colored, when possible) console."""
+    global _COLOR_ENABLED
+    _COLOR_ENABLED = _COLORAMA_OK and not no_color
+
+    LOG.setLevel(logging.DEBUG if verbose else logging.INFO)
+    LOG.handlers.clear()
+
+    # Log FILE: always plain text, no escapes ever.
+    file_h = logging.FileHandler(log_path, mode="w", encoding="utf-8")
+    file_h.setLevel(logging.DEBUG)
+    file_h.setFormatter(_StripAnsiFormatter(
+        "%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    ))
+    LOG.addHandler(file_h)
+
+    # Console.
+    console_h = logging.StreamHandler(sys.stdout)
+    console_h.setLevel(logging.DEBUG if verbose else logging.INFO)
+    if _COLOR_ENABLED:
+        console_h.setFormatter(_ConsoleColorFormatter("%(message)s"))
+    else:
+        console_h.setFormatter(_StripAnsiFormatter("%(message)s"))
+    LOG.addHandler(console_h)
+
+    LOG.propagate = False
+
+
+# Silence the underlying scripts' stray `print()` calls by routing stdout
+# through a thin wrapper while still letting our own logger print normally.
+# We keep their prints for verbose/debug visibility but tag them so they are
+# distinguishable from the wrapper's own output.
+class _PrintInterceptor:
+    def __init__(self, real_stdout):
+        self._real = real_stdout
+        self._buf = ""
+
+    def write(self, s):
+        if not s:
+            return
+        self._buf += s
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            line = line.rstrip()
+            if line:
+                LOG.debug("[lib] %s", line)
+
+    def flush(self):
+        if self._buf.strip():
+            LOG.debug("[lib] %s", self._buf.strip())
+        self._buf = ""
+
+
+# ---------------------------------------------------------------------------
+# Project discovery
+# ---------------------------------------------------------------------------
+def resolve_project_root(user_path):
+    """Resolve `user_path` to a project root that contains an `asset/` folder.
+
+    Accepts any of:
+      - The project root itself (folder containing `asset/`).
+      - The `asset/` folder directly (we walk up one level).
+      - Anything inside `asset/` (e.g. `asset/common/model`) -- we walk up
+        until we find an ancestor that contains `asset/`.
+      - A folder that has exactly one nested subfolder which itself contains
+        `asset/` (the common zip-extraction layout `proj/proj/asset/...`).
+      - The current working directory (when called with `.` or no argument).
+
+    Returns (resolved_root, info_message) so the caller can log the chosen
+    root after logging is set up. info_message is "" when the input was
+    already the project root.
+    """
+    p = os.path.abspath(user_path)
+    if not os.path.isdir(p):
+        raise FileNotFoundError(
+            "project path does not exist or is not a directory: {}".format(p)
+        )
+
+    # Case 1: direct hit -- this folder contains an `asset/` subdirectory.
+    if os.path.isdir(os.path.join(p, "asset")):
+        return p, ""
+
+    # Case 2: the path is at or inside an `asset/` folder. Walk up the parent
+    # chain looking for the first ancestor whose name is "asset" (case-
+    # insensitive) and whose parent therefore IS the project root.
+    cur = p
+    while True:
+        parent = os.path.dirname(cur)
+        if not parent or parent == cur:
+            break
+        if os.path.basename(cur).lower() == "asset" and \
+           os.path.isdir(os.path.join(parent, "asset")):
+            return parent, ("Resolved project root by walking up from {} "
+                            "to {}".format(p, parent))
+        cur = parent
+
+    # Case 3: zip-extraction layout -- exactly one nested subfolder that
+    # itself contains `asset/`. Handles `pyrixiaSFW/pyrixiaSFW/asset/...`.
+    children = [c for c in os.listdir(p) if os.path.isdir(os.path.join(p, c))]
+    if len(children) == 1:
+        nested = os.path.join(p, children[0])
+        if os.path.isdir(os.path.join(nested, "asset")):
+            return nested, "Descending into nested project root: {}".format(nested)
+
+    raise FileNotFoundError(
+        "could not find an 'asset/' folder at, inside, or above {!r}.\n"
+        "Hint: point me at the project root (the folder that contains "
+        "'asset/'), or at the 'asset' folder itself, or run me from inside "
+        "the project with no arguments.".format(p)
+    )
+
+
+def find_mdls(project_root):
+    model_dir = os.path.join(project_root, "asset", "common", "model")
+    if not os.path.isdir(model_dir):
+        return []
+    out = []
+    for name in sorted(os.listdir(model_dir)):
+        if name.lower().endswith(".mdl"):
+            out.append(os.path.join(model_dir, name))
+    return out
+
+
+def index_image_dir(project_root):
+    """Return (image_dir, {lower_filename: actual_filename})."""
+    img_dir = os.path.join(project_root, "asset", "dx11", "image")
+    if not os.path.isdir(img_dir):
+        return img_dir, {}
+    idx = {}
+    for name in os.listdir(img_dir):
+        full = os.path.join(img_dir, name)
+        if not os.path.isfile(full):
+            continue
+        if name.lower() == "desktop.ini":
+            continue
+        idx[name.lower()] = name
+    return img_dir, idx
+
+
+# ---------------------------------------------------------------------------
+# Per-MDL plan
+# ---------------------------------------------------------------------------
+class MdlPlan:
+    """A plan for how to rename one .mdl and all of its referenced images.
+
+    Attributes
+    ----------
+    src_mdl : str           absolute path to source .mdl
+    src_basename : str      e.g. 'chr5113'
+    new_basename : str      e.g. 'mod_chr5113'
+    new_mdl_relpath : str   path inside the output project tree
+    image_renames : dict    {original_disk_filename: new_filename} for matched images
+    missing_refs : list     image_list entries that have no matching disk file
+    src_mi : str|None       path to source .mi file (or None)
+    new_mi_relpath : str    relative path of the renamed .mi inside the output
+    """
+    def __init__(self, src_mdl, src_basename, new_basename, new_mdl_relpath,
+                 image_renames, missing_refs, src_mi, new_mi_relpath):
+        self.src_mdl = src_mdl
+        self.src_basename = src_basename
+        self.new_basename = new_basename
+        self.new_mdl_relpath = new_mdl_relpath
+        self.image_renames = image_renames
+        self.missing_refs = missing_refs
+        self.src_mi = src_mi
+        self.new_mi_relpath = new_mi_relpath
+
+
+def _mdl_image_list(mdl_path):
+    """Return the set of image references (with .dds extension) for an mdl,
+    using the embedded library functions. Reads bytes only, writes nothing."""
+    with open(mdl_path, "rb") as f:
+        raw = f.read()
+    raw = decryptCLE(raw)
+    mat = obtain_material_data(raw)
+    if mat is False or mat is None:
+        return None  # not an mdl
+    # Same logic as in the export's process_mdl() to compose image_list.json.
+    refs = sorted({tex["texture_image_name"] + ".dds"
+                   for m in mat for tex in m["textures"]})
+    return refs
+
+
+def make_image_rename(orig_disk_filename, new_mdl_basename):
+    """Compute the renamed image filename for a given mdl context.
+
+    The new mdl basename is used as the per-mdl prefix, which guarantees
+    uniqueness when several mdls reference the same source image.
+    """
+    return "{0}_{1}".format(new_mdl_basename, orig_disk_filename)
+
+
+def _index_model_info_dir(project_root):
+    """Return {lower(basename_no_ext): actual_filename} for the model_info
+    directory so we can find an .mi side-car case-insensitively."""
+    mi_dir = os.path.join(project_root, "asset", "common", "model_info")
+    if not os.path.isdir(mi_dir):
+        return mi_dir, {}
+    idx = {}
+    for name in os.listdir(mi_dir):
+        full = os.path.join(mi_dir, name)
+        if not os.path.isfile(full):
+            continue
+        if name.lower().endswith(".mi"):
+            stem = name[:-3]
+            idx[stem.lower()] = name
+    return mi_dir, idx
+
+
+def build_plan(project_root, mdl_paths, image_index, prefix, suffix):
+    plans = []
+    mi_dir, mi_index = _index_model_info_dir(project_root)
+    for mdl in mdl_paths:
+        base_with_ext = os.path.basename(mdl)
+        base = base_with_ext[:-4]  # strip .mdl
+        new_base = "{0}{1}{2}".format(prefix, base, suffix)
+        new_mdl_relpath = os.path.join("asset", "common", "model", new_base + ".mdl")
+
+        try:
+            refs = _mdl_image_list(mdl)
+        except Exception as e:
+            LOG.error("Failed to parse %s: %s", mdl, e)
+            continue
+        if refs is None:
+            LOG.warning("Skipping %s (does not look like an mdl).", base_with_ext)
+            continue
+
+        image_renames = {}
+        missing_refs = []
+        for ref in refs:
+            actual = image_index.get(ref.lower())
+            if actual is None:
+                missing_refs.append(ref)
+            else:
+                image_renames[actual] = make_image_rename(actual, new_base)
+
+        # Optional .mi side-car. Look it up case-insensitively so a Linux
+        # filesystem with mixed casing (e.g. CHR5113.MI vs chr5113.mdl)
+        # still finds the side-car. A missing .mi is not an error -- some
+        # models genuinely have none.
+        actual_mi_filename = mi_index.get(base.lower())
+        if actual_mi_filename is None:
+            src_mi = None
+            new_mi_relpath = None
+        else:
+            src_mi = os.path.join(mi_dir, actual_mi_filename)
+            new_mi_relpath = os.path.join("asset", "common", "model_info", new_base + ".mi")
+
+        plans.append(MdlPlan(
+            src_mdl=mdl,
+            src_basename=base,
+            new_basename=new_base,
+            new_mdl_relpath=new_mdl_relpath,
+            image_renames=image_renames,
+            missing_refs=missing_refs,
+            src_mi=src_mi,
+            new_mi_relpath=new_mi_relpath,
+        ))
+    return plans
+
+
+# ---------------------------------------------------------------------------
+# Plan reporting
+# ---------------------------------------------------------------------------
+def _name_arrow(src_name, new_name):
+    """Return a visually distinct '<src>  -->  <new>' string. Source is dim,
+    arrow is dim, new name is green when changed and yellow (kept) when
+    equal to the source."""
+    arrow = _dim("-->")
+    if src_name == new_name:
+        new_disp = _yellow(new_name) + _dim(" (kept)")
+    else:
+        new_disp = _green(new_name)
+    return "{}  {}  {}".format(_dim(src_name), arrow, new_disp)
+
+
+def report_plans(plans, src_image_dir, src_image_index, output_root, dry_run,
+                 keep=False, kept_files=()):
+    title = "DRY-RUN" if dry_run else "APPLY"
+    title_color = _cyan if dry_run else _green
+    LOG.info("")
+    LOG.info(_bold(_cyan("=" * 72)))
+    LOG.info(_bold(title_color("PLAN OVERVIEW ({})".format(title))))
+    LOG.info(_bold(_cyan("=" * 72)))
+
+    # Determine which disk images will be copied (as how many copies).
+    referenced_disk_files = set()
+    for p in plans:
+        for orig in p.image_renames.keys():
+            referenced_disk_files.add(orig)
+
+    unreferenced_disk_files = [
+        name for low, name in src_image_index.items() if name not in referenced_disk_files
+    ]
+
+    total_image_copies = sum(len(p.image_renames) for p in plans)
+    total_missing = sum(len(p.missing_refs) for p in plans)
+    total_mi_missing = sum(1 for p in plans if not p.src_mi)
+
+    LOG.info("Output project root : %s", _cyan(output_root))
+    LOG.info("Models to process   : %s", _bold(str(len(plans))))
+    LOG.info("Images on disk      : %s", _bold(str(len(src_image_index))))
+    LOG.info("  - referenced      : %s", _green(str(len(referenced_disk_files))))
+    if keep:
+        LOG.info("  - NOT referenced  : %s %s",
+                 _yellow(str(len(unreferenced_disk_files))),
+                 _dim("(will be copied verbatim, --keep)"))
+    else:
+        LOG.info("  - NOT referenced  : %s %s",
+                 _yellow(str(len(unreferenced_disk_files))),
+                 _dim("(will not be copied)"))
+    LOG.info("Image copies to make: %s %s",
+             _bold(_green(str(total_image_copies))),
+             _dim("(each model gets its own copy)"))
+    LOG.info("Missing references  : %s %s",
+             _yellow(str(total_missing)),
+             _dim("(left as-is in JSONs)"))
+    if keep:
+        LOG.info("Files to copy verbatim (--keep): %s",
+                 _bold(_green(str(len(kept_files)))))
+    if total_mi_missing:
+        LOG.warning("Models without a .mi side-car: %d (continuing without it)",
+                    total_mi_missing)
+    LOG.info("")
+
+    for i, p in enumerate(plans, 1):
+        # Per-mdl header banner -- keeps each model's section visually
+        # self-contained instead of running together.
+        header = "MODEL [{}/{}]  {}".format(i, len(plans), p.src_basename)
+        LOG.info("")
+        LOG.info(_bold(_magenta("=" * 24 + " " + header + " " + "=" * (max(2, 47 - len(header))))))
+        LOG.info("%s : %s", _bold("MDL"), _name_arrow(p.src_basename + ".mdl",
+                                                       p.new_basename + ".mdl"))
+        if p.src_mi:
+            LOG.info("%s  : %s", _bold("MI"), _name_arrow(p.src_basename + ".mi",
+                                                           p.new_basename + ".mi"))
+        else:
+            LOG.warning("MI   : %s.mi  -->  (NOT FOUND in source - skipping, this is OK if "
+                        "the model genuinely has no .mi)", p.src_basename)
+        LOG.info("Referenced images : %s  (matched on disk: %s, NOT on disk: %s)",
+                 _bold(str(len(p.image_renames) + len(p.missing_refs))),
+                 _green(str(len(p.image_renames))),
+                 _yellow(str(len(p.missing_refs))))
+
+        # Always show the matched rename map -- this is the headline output
+        # of the plan and the user shouldn't need --verbose to see it.
+        if p.image_renames:
+            LOG.info("  %s", _bold("rename map (matched images, this model only):"))
+            for orig, new in sorted(p.image_renames.items()):
+                LOG.info("    %s", _name_arrow(orig, new))
+        if p.missing_refs:
+            LOG.info("  %s", _bold("missing references (left untouched in JSONs):"))
+            for r in p.missing_refs:
+                LOG.info("    %s", _yellow(r))
+
+    # Bottom of the report. With --keep we list ALL files that would be
+    # copied verbatim into the output (unreferenced images + anything else
+    # in the source tree that the renaming pipeline doesn't touch). Without
+    # --keep we keep the existing "what would be skipped" listing for the
+    # unreferenced images only.
+    if keep:
+        if kept_files:
+            LOG.info("")
+            LOG.info(_dim("-" * 72))
+            LOG.info("%s",
+                     _bold("Files to be copied verbatim into the output (--keep):"))
+            for rel in kept_files:
+                LOG.info("    %s", _dim(rel))
+    else:
+        if unreferenced_disk_files:
+            LOG.info("")
+            LOG.info(_dim("-" * 72))
+            LOG.info("%s",
+                     _bold("Images on disk that no MDL references (will NOT be copied):"))
+            for name in sorted(unreferenced_disk_files):
+                LOG.info("    %s", _dim(name))
+
+    LOG.info(_bold(_cyan("=" * 72)))
+
+
+# ---------------------------------------------------------------------------
+# Apply (the only side-effect path)
+# ---------------------------------------------------------------------------
+def _patch_image_list_json(json_path, image_renames, plan_label):
+    """Rewrite image_list.json so matched entries use their new filenames.
+
+    image_renames keys are the *actual on-disk filenames*. Entries in the
+    JSON typically have a different case (e.g. UPPERCASE) -- we match
+    case-insensitively and preserve unmatched entries verbatim.
+    """
+    with open(json_path, "rb") as f:
+        data = json.loads(f.read().decode("utf-8"))
+    # Build a lookup keyed by lower(disk-name) -> new disk name
+    lookup = {orig.lower(): new for orig, new in image_renames.items()}
+    out = []
+    changed = 0
+    for entry in data:
+        repl = lookup.get(entry.lower())
+        if repl is None:
+            out.append(entry)  # leave untouched
+        else:
+            out.append(repl)
+            changed += 1
+    with open(json_path, "wb") as f:
+        f.write(json.dumps(out, indent=4).encode("utf-8"))
+    LOG.debug("[%s] image_list.json: %d entries rewritten", plan_label, changed)
+
+
+def _patch_material_info_json(json_path, image_renames, plan_label):
+    """Rewrite material_info.json. texture_image_name has NO extension here,
+    so we strip the extension off our rename map for the comparison and
+    write back the renamed name *also* without extension."""
+    with open(json_path, "rb") as f:
+        data = json.loads(f.read().decode("utf-8"))
+    # Map: lower(stem) -> new stem (no extension)
+    stem_lookup = {}
+    for orig, new in image_renames.items():
+        orig_stem = os.path.splitext(orig)[0]
+        new_stem = os.path.splitext(new)[0]
+        stem_lookup[orig_stem.lower()] = new_stem
+    changed = 0
+    for mat in data:
+        for tex in mat.get("textures", []):
+            name = tex.get("texture_image_name")
+            if name is None:
+                continue
+            repl = stem_lookup.get(name.lower())
+            if repl is not None:
+                tex["texture_image_name"] = repl
+                changed += 1
+    with open(json_path, "wb") as f:
+        f.write(json.dumps(data, indent=4).encode("utf-8"))
+    LOG.debug("[%s] material_info.json: %d texture refs rewritten", plan_label, changed)
+
+
+def _normcase_abs(p):
+    return os.path.normcase(os.path.abspath(p))
+
+
+def build_consumed_set(plans, src_image_dir):
+    """Return the set of absolute, case-normalised source paths whose content
+    is already represented in the output by a renamed counterpart -- the
+    source mdls (renamed), source mis (renamed), and source images that
+    were matched and per-mdl-renamed."""
+    consumed = set()
+    for plan in plans:
+        consumed.add(_normcase_abs(plan.src_mdl))
+        if plan.src_mi:
+            consumed.add(_normcase_abs(plan.src_mi))
+        for orig in plan.image_renames:
+            consumed.add(_normcase_abs(os.path.join(src_image_dir, orig)))
+    return consumed
+
+
+def enumerate_kept_files(src_project, consumed_abs, extra_skip_abs=()):
+    """Walk src_project and return the sorted list of relative paths whose
+    full source location is NOT in `consumed_abs` and not in
+    `extra_skip_abs`. These are the files --keep would copy verbatim."""
+    skip = set(consumed_abs) | {_normcase_abs(p) for p in extra_skip_abs if p}
+    out = []
+    for root, dirs, files in os.walk(src_project):
+        for fname in files:
+            full = os.path.join(root, fname)
+            if _normcase_abs(full) in skip:
+                continue
+            out.append(os.path.relpath(full, src_project))
+    out.sort()
+    return out
+
+
+def copy_kept_files(src_project, output_root, kept_relpaths):
+    """Copy each path in kept_relpaths from src_project to output_root,
+    preserving the directory structure. Returns the count of files copied."""
+    n = 0
+    for rel in kept_relpaths:
+        src = os.path.join(src_project, rel)
+        dst = os.path.join(output_root, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+        LOG.info("[keep] %s/%s", _dim("verbatim"), rel)
+        n += 1
+    return n
+
+
+def apply_plan(plan, source_root, output_root, src_image_dir):
+    """Execute a single MdlPlan."""
+    label = plan.new_basename
+
+    # 1. Make sure output dirs exist.
+    out_model_dir = os.path.join(output_root, "asset", "common", "model")
+    out_image_dir = os.path.join(output_root, "asset", "dx11", "image")
+    out_mi_dir    = os.path.join(output_root, "asset", "common", "model_info")
+    os.makedirs(out_model_dir, exist_ok=True)
+    os.makedirs(out_image_dir, exist_ok=True)
+    os.makedirs(out_mi_dir, exist_ok=True)
+
+    # 2. Copy the .mdl into the output folder under the new name.
+    new_mdl_path = os.path.join(output_root, plan.new_mdl_relpath)
+    shutil.copy2(plan.src_mdl, new_mdl_path)
+    LOG.info("[%s] copied mdl to %s", label, new_mdl_path)
+
+    # 3. If this mdl has any matched images, run export -> patch JSONs ->
+    #    import to repack. If it has none, we just leave the copied mdl
+    #    file alone (it's a straight copy under a new name).
+    if plan.image_renames:
+        # Run export. process_mdl creates a folder next to the mdl named the
+        # same as the mdl (without .mdl), and writes JSONs + fmt/ib/vb there.
+        old_cwd = os.getcwd()
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = _PrintInterceptor(old_stdout)
+            os.chdir(out_model_dir)
+            mdl_local = plan.new_basename + ".mdl"
+            LOG.info("[%s] running export (decompile)...", label)
+            process_mdl(mdl_local, complete_maps=True, trim_for_gpu=False,
+                        dump_collision_nodes=False, overwrite=True)
+        finally:
+            sys.stdout = old_stdout
+            os.chdir(old_cwd)
+
+        scratch = os.path.join(out_model_dir, plan.new_basename)
+
+        # Patch the JSONs.
+        _patch_image_list_json(os.path.join(scratch, "image_list.json"),
+                               plan.image_renames, label)
+        _patch_material_info_json(os.path.join(scratch, "material_info.json"),
+                                  plan.image_renames, label)
+        LOG.info("[%s] patched image_list.json + material_info.json", label)
+
+        # Run import (repack).
+        old_cwd = os.getcwd()
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = _PrintInterceptor(old_stdout)
+            os.chdir(out_model_dir)
+            LOG.info("[%s] running import (recompile)...", label)
+            # We rename the .bak away or just delete it after the run. The
+            # import script makes one automatically before overwriting.
+            process_mdl_import(plan.new_basename + ".mdl",
+                               change_compression=False, force_kuro_version=False)
+        finally:
+            sys.stdout = old_stdout
+            os.chdir(old_cwd)
+
+        # Cleanup the scratch folder.
+        shutil.rmtree(scratch, ignore_errors=True)
+        # Cleanup any .bak files created by the import script.
+        for sib in os.listdir(out_model_dir):
+            if sib.startswith(plan.new_basename + ".mdl.bak"):
+                try:
+                    os.remove(os.path.join(out_model_dir, sib))
+                except OSError:
+                    pass
+        LOG.info("[%s] cleaned up scratch + .bak files", label)
+    else:
+        LOG.info("[%s] no images to rename; mdl was copied verbatim under the new name", label)
+
+    # 4. Copy renamed images into the output image dir. Skip if a sibling
+    #    plan already produced this exact filename (shouldn't happen because
+    #    each mdl puts its basename into the prefix, but be defensive).
+    sorted_renames = sorted(plan.image_renames.items())
+    n_total = len(sorted_renames)
+    for idx, (orig, new) in enumerate(sorted_renames, 1):
+        src = os.path.join(src_image_dir, orig)
+        dst = os.path.join(out_image_dir, new)
+        if os.path.exists(dst):
+            LOG.info("[%s] image %d/%d (already exists, skipping): %s",
+                     label, idx, n_total, _dim(new))
+            continue
+        shutil.copy2(src, dst)
+        LOG.info("[%s] image %d/%d: %s",
+                 label, idx, n_total, _name_arrow(orig, new))
+    if n_total:
+        LOG.info("[%s] copied %s renamed image(s) total",
+                 label, _bold(_green(str(n_total))))
+
+    # 5. Copy + rename the .mi side-car.
+    if plan.src_mi and plan.new_mi_relpath:
+        new_mi_path = os.path.join(output_root, plan.new_mi_relpath)
+        shutil.copy2(plan.src_mi, new_mi_path)
+        LOG.info("[%s] copied mi -> %s", label, new_mi_path)
+    else:
+        LOG.warning("[%s] no .mi side-car found for %s.mdl - the output will have "
+                    "no %s.mi (continuing; this is OK if the source genuinely has none)",
+                    label, plan.src_basename, plan.new_basename)
+
+
+# ---------------------------------------------------------------------------
+# A tiny shim: the embedded code defines two functions both called
+# `process_mdl` -- the second one (from the import script) overwrites the
+# first when we concatenate. We rebind them at module load below.
+# ---------------------------------------------------------------------------
+# (See the very end of the file -- after the embedded code -- for the
+# rebinding.)
+
+
+# ---------------------------------------------------------------------------
+# CLI / main
+# ---------------------------------------------------------------------------
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(
+        prog="kuro_mdl_rename",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "Produce a renamed copy of a Kuro no Kiseki / ED9 mdl asset project.\n"
+            "\n"
+            "For every .mdl found under <project>/asset/common/model/, the\n"
+            "script:\n"
+            "  1. Picks a new name for the mdl (prefix/suffix, or a name you\n"
+            "     enter interactively under --rename). You may also keep the\n"
+            "     original name unchanged.\n"
+            "  2. Copies the mdl under that name into a SEPARATE output\n"
+            "     directory (the source is never modified).\n"
+            "  3. Reads the mdl's texture references and matches them, case-\n"
+            "     insensitively, against files in <project>/asset/dx11/image/.\n"
+            "  4. For each match, produces a per-mdl unique renamed copy in\n"
+            "     the output's image folder. The image rename is anchored on\n"
+            "     the chosen new mdl basename so two mdls that share the same\n"
+            "     source texture each get their own private copy in the\n"
+            "     output -- even if you keep one or both mdl names unchanged.\n"
+            "  5. Patches image_list.json and material_info.json inside the\n"
+            "     output mdl, then repacks it.\n"
+            "  6. Renames the matching .mi side-car. A missing .mi is not\n"
+            "     fatal (warned about and skipped).\n"
+            "\n"
+            "References to images that are NOT present on disk are left\n"
+            "untouched in the JSONs (the engine is expected to find them\n"
+            "elsewhere in the game). On-disk images that no .mdl references\n"
+            "are not copied to the output."
+        ),
+        epilog=(
+            "Examples\n"
+            "--------\n"
+            "Default interactive run, project at the current directory:\n"
+            "    py kuro_mdl_rename.py\n"
+            "\n"
+            "Default interactive run pointed at a project folder:\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW\n"
+            "\n"
+            "Per-mdl interactive rename (each mdl asks for a new name):\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --rename\n"
+            "\n"
+            "Fully non-interactive run (CI / scripts; no prompts at all):\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --non-interactive --apply --prefix mod_\n"
+            "\n"
+            "Path resolution is permissive -- all of these work:\n"
+            "    py kuro_mdl_rename.py                              :: cwd\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW          :: project root\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW\\asset    :: asset folder itself\n"
+            "    py kuro_mdl_rename.py asset\\common\\model           :: anything inside asset\\\n"
+            "    py kuro_mdl_rename.py C:\\mods\\unzipped_root        :: contains a single nested project\n"
+            "\n"
+            "Notes\n"
+            "-----\n"
+            "* The script is INTERACTIVE BY DEFAULT. Any value you do not\n"
+            "  pass on the CLI is asked for at runtime, with a sensible\n"
+            "  default pre-filled and editable (Backspace, arrow keys, then\n"
+            "  Enter on a real terminal; bracket-style [default] fallback on\n"
+            "  pipes and dumb terminals).\n"
+            "* Pass --non-interactive to disable all prompts. In that mode\n"
+            "  any value not on the CLI takes its built-in default:\n"
+            "      prefix = 'mod_'    suffix = ''     apply = False (dry-run)\n"
+            "      output = '<project>_modded' next to the source\n"
+            "      keep   = False (only the renamed files appear in output)\n"
+            "* The script is dry-run by default -- the plan is logged and\n"
+            "  printed but no files are written until you pass --apply (or\n"
+            "  answer 'yes' to the apply prompt in interactive mode).\n"
+            "* The log file is always written next to this Python script,\n"
+            "  not into the output directory. Override with --log."
+        ),
+    )
+    p.add_argument("project", nargs="?", default=".",
+                   help="Path to the source project (default: current directory). "
+                        "Accepts the project root, the 'asset/' folder itself, "
+                        "anything nested inside 'asset/', or a folder that contains "
+                        "exactly one nested project folder (zip-extraction layout).")
+    p.add_argument("--prefix", default=None,
+                   help="Prefix added to renamed mdl files (default: 'mod_'). "
+                        "Ignored under --rename. Empty is allowed.")
+    p.add_argument("--suffix", default=None,
+                   help="Suffix added to renamed mdl files, before .mdl (default: empty). "
+                        "Ignored under --rename.")
+    p.add_argument("--output", "-o", default=None,
+                   help="Output project directory (default: '<project>_modded' next to the source).")
+    p.add_argument("--apply", action="store_true", default=None,
+                   help="Actually write files. Without --apply (and without answering 'yes' "
+                        "to the apply prompt in interactive mode) only the plan is logged.")
+    p.add_argument("--keep", action="store_true", default=None,
+                   help="Copy ALL unprocessed source files (the ones the renaming pipeline "
+                        "doesn't touch) into the output project verbatim. This includes "
+                        "unreferenced images, files in other folders under the project, etc. "
+                        "Default: no -- only the renamed mdls, .mi side-cars and per-mdl "
+                        "renamed image copies appear in the output.")
+    p.add_argument("--rename", action="store_true",
+                   help="Per-mdl interactive rename. Ignores --prefix/--suffix and prompts "
+                        "for every .mdl's new basename. You may keep the original name by "
+                        "editing the pre-filled default; image renames are still derived "
+                        "from each chosen new basename, so per-mdl image uniqueness holds "
+                        "even when several mdls share a source texture.")
+    p.add_argument("--non-interactive", "--batch", dest="non_interactive",
+                   action="store_true",
+                   help="Disable ALL interactive prompts. Any value not present on the "
+                        "command line takes its default (prefix='mod_', suffix='', "
+                        "output='<project>_modded', apply=False, keep=False). "
+                        "Mutually exclusive with --rename.")
+    p.add_argument("--log", default=None,
+                   help="Log file path (default: kuro_mdl_rename.log next to this script).")
+    p.add_argument("--no-color", action="store_true",
+                   help="Disable colored console output.")
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="Verbose console output (the log file is always verbose).")
+    return p.parse_args(argv)
+
+
+def _default_output_dir(project_path):
+    parent = os.path.dirname(os.path.abspath(project_path))
+    name = os.path.basename(os.path.abspath(project_path).rstrip(os.sep))
+    return os.path.join(parent, name + "_modded")
+
+
+def _check_prefix_suffix(prefix, suffix):
+    """Return None if OK, else a human-readable error message.
+
+    We only validate filename-safety. Empty prefix AND empty suffix is
+    allowed -- the output directory is always separate from the source,
+    so leaving the mdl filenames unchanged is fine.
+    """
+    if not _is_safe_name((prefix or "") + (suffix or "")):
+        return ("invalid character in prefix/suffix (no whitespace and none of "
+                ": \\ / * ? \" < > | )")
+    return None
+
+
+def _validate_prefix_suffix(prefix, suffix):
+    err = _check_prefix_suffix(prefix, suffix)
+    if err:
+        raise SystemExit(err)
+
+
+def _interactive_collect_prefix_suffix(prefix_default, suffix_default):
+    """Prompt for prefix and suffix, looping until validation passes."""
+    sys.stdout.write("\n--- Interactive setup (press Enter to accept the pre-filled value) ---\n")
+    while True:
+        prefix = prompt_with_default(
+            "Prefix added to renamed mdl files: ", prefix_default
+        )
+        suffix = prompt_with_default(
+            "Suffix added to renamed mdl files (before .mdl): ", suffix_default
+        )
+        err = _check_prefix_suffix(prefix, suffix)
+        if err is None:
+            return prefix, suffix
+        sys.stdout.write("  {}. Try again.\n".format(err))
+        prefix_default, suffix_default = prefix or prefix_default, suffix or suffix_default
+
+
+def _interactive_collect_output_apply(default_output, current_apply, current_keep):
+    """Prompt for the output directory, the keep-unprocessed-files flag and
+    the apply confirmation. Returns (output, apply, keep)."""
+    output = prompt_with_default("Output directory: ", default_output)
+    keep = prompt_yes_no(
+        "Copy all unprocessed source files (unreferenced images and any other "
+        "non-renamed files) verbatim into the output? (default no): ",
+        default=bool(current_keep),
+    )
+    if current_apply:
+        return output, True, keep
+    apply_now = prompt_yes_no(
+        "Apply changes now? (default no = dry-run only): ", default=False
+    )
+    return output, apply_now, keep
+
+
+def _interactive_rename_each(plans):
+    """Walk every plan and let the user pick a new basename for each .mdl.
+
+    Image renames are re-derived from the chosen new basename via
+    make_image_rename(), so each .mdl still gets a unique image-copy
+    namespace even when several .mdl files share the same source image.
+
+    Keeping the original mdl basename is allowed -- the script still
+    duplicates images and patches the JSONs to reference the per-mdl
+    renamed copies, so per-mdl isolation holds even for unchanged names.
+    """
+    sys.stdout.write("\n--- Per-mdl interactive rename ---\n")
+    sys.stdout.write("For every .mdl, type the new basename (without the .mdl extension) "
+                     "and press Enter. The pre-filled default is 'mod_<orig>'. To keep "
+                     "the original name, just edit it back and press Enter.\n\n")
+    chosen = {}  # new_basename(lower) -> source_basename, to detect collisions
+    for plan in plans:
+        suggested = "mod_" + plan.src_basename
+        while True:
+            new_base = prompt_with_default(
+                "Rename '{}.mdl' to (without .mdl): ".format(plan.src_basename),
+                suggested,
+                allow_empty=False,
+            ).strip()
+            if not new_base:
+                sys.stdout.write("  Name cannot be empty. Try again.\n")
+                continue
+            if not _is_safe_name(new_base):
+                sys.stdout.write("  Invalid characters (no whitespace and none of "
+                                 ": \\ / * ? \" < > | ). Try again.\n")
+                continue
+            existing = chosen.get(new_base.lower())
+            if existing is not None and existing != plan.src_basename:
+                sys.stdout.write("  Name '{}' is already used by '{}.mdl' in this run. "
+                                 "Try again.\n".format(new_base, existing))
+                continue
+            break
+        chosen[new_base.lower()] = plan.src_basename
+
+        # Apply the chosen new basename to the plan: mdl path, mi path,
+        # and the image rename map (re-derive so per-mdl uniqueness holds
+        # regardless of whether the user kept the original name or not).
+        plan.new_basename = new_base
+        plan.new_mdl_relpath = os.path.join("asset", "common", "model", new_base + ".mdl")
+        plan.image_renames = {
+            orig: make_image_rename(orig, new_base) for orig in plan.image_renames
+        }
+        if plan.src_mi:
+            plan.new_mi_relpath = os.path.join(
+                "asset", "common", "model_info", new_base + ".mi"
+            )
+    sys.stdout.write("\n")
+
+
+def _script_dir():
+    """Where the running script lives. Falls back to cwd when unavailable
+    (e.g. when run as a frozen executable without __file__)."""
+    try:
+        if getattr(sys, "frozen", False):
+            return os.path.dirname(os.path.abspath(sys.executable))
+        return os.path.dirname(os.path.abspath(__file__))
+    except (NameError, AttributeError):
+        return os.getcwd()
+
+
+def main(argv=None):
+    args = parse_args(argv)
+
+    if args.rename and args.non_interactive:
+        sys.stderr.write(
+            "ERROR: --rename and --non-interactive are mutually exclusive "
+            "(--rename is itself an interactive feature).\n"
+        )
+        return 2
+
+    interactive = not args.non_interactive
+    src_project, resolve_note = resolve_project_root(args.project)
+
+    # ---- Step 1: prefix/suffix (skipped under --rename) -------------------
+    if args.rename:
+        # Names will be picked per-mdl; build_plan gets empty placeholders
+        # which it overwrites once the user has chosen each new basename.
+        args.prefix = ""
+        args.suffix = ""
+    else:
+        if interactive:
+            try:
+                args.prefix, args.suffix = _interactive_collect_prefix_suffix(
+                    args.prefix if args.prefix is not None else "mod_",
+                    args.suffix if args.suffix is not None else "",
+                )
+            except (KeyboardInterrupt, EOFError):
+                sys.stderr.write("\nCancelled.\n")
+                return 130
+        else:
+            if args.prefix is None:
+                args.prefix = "mod_"
+            if args.suffix is None:
+                args.suffix = ""
+        _validate_prefix_suffix(args.prefix, args.suffix)
+
+    # ---- Step 2: silent discovery (no logging yet) ------------------------
+    mdls = find_mdls(src_project)
+    if not mdls:
+        sys.stderr.write(
+            "ERROR: No .mdl files found under {}/asset/common/model/\n".format(src_project)
+        )
+        return 1
+    src_image_dir, image_index = index_image_dir(src_project)
+    plans = build_plan(src_project, mdls, image_index, args.prefix, args.suffix)
+    if not plans:
+        sys.stderr.write("ERROR: No usable plans were produced.\n")
+        return 1
+
+    # ---- Step 3: per-mdl interactive rename (only under --rename) ---------
+    if args.rename:
+        try:
+            _interactive_rename_each(plans)
+        except (KeyboardInterrupt, EOFError):
+            sys.stderr.write("\nCancelled.\n")
+            return 130
+
+    # ---- Step 4: output dir + apply confirmation -------------------------
+    if interactive:
+        try:
+            default_output = args.output or _default_output_dir(src_project)
+            args.output, args.apply, args.keep = _interactive_collect_output_apply(
+                default_output, bool(args.apply), bool(args.keep)
+            )
+        except (KeyboardInterrupt, EOFError):
+            sys.stderr.write("\nCancelled.\n")
+            return 130
+    else:
+        if args.output is None:
+            args.output = _default_output_dir(src_project)
+        if args.apply is None:
+            args.apply = False  # default = dry-run
+        if args.keep is None:
+            args.keep = False  # default = no verbatim copy of unprocessed files
+
+    out_project = os.path.abspath(args.output)
+
+    # ---- Step 5: set up logging (log file lives next to this script) ------
+    log_path = args.log or os.path.join(_script_dir(), "kuro_mdl_rename.log")
+    setup_logging(log_path, verbose=args.verbose, no_color=args.no_color)
+    if resolve_note:
+        LOG.info(resolve_note)
+
+    LOG.info("kuro_mdl_rename starting at %s", _dim(datetime.now().isoformat(timespec="seconds")))
+    LOG.info("Mode               : %s%s",
+             _green("APPLY") if args.apply else _cyan("DRY-RUN"),
+             _dim("  (--non-interactive)") if not interactive else "")
+    LOG.info("Source project     : %s", _cyan(src_project))
+    LOG.info("Output project     : %s", _cyan(out_project))
+    if args.rename:
+        LOG.info("Naming             : %s", _bold("per-mdl interactive (--rename)"))
+    else:
+        LOG.info("Prefix / suffix    : %s / %s",
+                 _green(repr(args.prefix)), _green(repr(args.suffix)))
+    LOG.info("Keep unused files  : %s",
+             _green("yes (--keep)") if args.keep else _dim("no"))
+    LOG.info("Log file           : %s", _dim(log_path))
+    LOG.info("Discovered %s .mdl file(s).", _bold(str(len(mdls))))
+    LOG.info("Discovered %s image file(s) in %s.",
+             _bold(str(len(image_index))), _dim(src_image_dir))
+
+    if os.path.abspath(out_project) == os.path.abspath(src_project):
+        LOG.error("Output path is the same as the source path. Aborting to protect source data.")
+        return 2
+
+    # Compute the list of files --keep would copy. We always compute it when
+    # --keep is set so it's available both for the dry-run report and for
+    # the apply step. We exclude the running script and the log file from
+    # the walk; these may live INSIDE the project (the user often runs the
+    # script from inside the project folder) and shouldn't be copied.
+    consumed_abs = build_consumed_set(plans, src_image_dir)
+    extra_skip = [log_path]
+    try:
+        extra_skip.append(os.path.abspath(__file__))
+    except NameError:
+        pass
+    kept_files = []
+    if args.keep:
+        kept_files = enumerate_kept_files(src_project, consumed_abs, extra_skip)
+
+    # ---- Step 6: report and apply -----------------------------------------
+    report_plans(plans, src_image_dir, image_index, out_project,
+                 dry_run=not args.apply, keep=args.keep, kept_files=kept_files)
+
+    if not args.apply:
+        LOG.info("")
+        LOG.info(_cyan(_bold("Dry-run complete.")) + " Re-run with " + _bold("--apply")
+                 + " (or answer " + _bold("'yes'") + " to the apply prompt) to write the new project.")
+        return 0
+
+    if os.path.exists(out_project) and os.listdir(out_project):
+        LOG.warning("Output directory already exists and is not empty: %s", out_project)
+        LOG.warning("Existing files may be overwritten or left over.")
+    os.makedirs(out_project, exist_ok=True)
+
+    failures = 0
+    for i, plan in enumerate(plans, 1):
+        # A clearly visible banner so the per-mdl actions that follow are
+        # unmistakably attributed to this model and not all "in one heap"
+        # when several models are processed.
+        header = "MODEL [{}/{}]  {}  -->  {}".format(
+            i, len(plans), plan.src_basename + ".mdl",
+            plan.new_basename + ".mdl")
+        LOG.info("")
+        LOG.info(_bold(_magenta("=" * 8 + " " + header + " " + "=" * max(2, 60 - len(header)))))
+        try:
+            apply_plan(plan, src_project, out_project, src_image_dir)
+            LOG.info("[%s] %s", plan.new_basename, _bold(_green("OK")))
+        except Exception as e:
+            LOG.exception("[%s] FAILED: %s", plan.new_basename, e)
+            failures += 1
+
+    # --keep: after every per-mdl apply has run, walk the source tree once
+    # more and copy every file that wasn't consumed by the renaming pipeline.
+    if args.keep and kept_files:
+        LOG.info("")
+        LOG.info(_bold(_magenta("=" * 8 + " KEEP: copying unprocessed source files "
+                                + "=" * 22)))
+        try:
+            n = copy_kept_files(src_project, out_project, kept_files)
+            LOG.info("[keep] %s file(s) copied verbatim",
+                     _bold(_green(str(n))))
+        except Exception as e:
+            LOG.exception("[keep] FAILED: %s", e)
+            failures += 1
+
+    LOG.info("")
+    LOG.info(_bold(_cyan("=" * 72)))
+    if failures:
+        LOG.error("Done, with %d failure(s). See log: %s", failures, log_path)
+        return 1
+    LOG.info("%s Output project written to: %s",
+             _bold(_green("Done.")), _cyan(out_project))
+    LOG.info("Log file: %s", _dim(log_path))
+    return 0
+
+
+if __name__ == "__main__":
+    # The embedded code defines two functions named process_mdl. The second
+    # (from the import script) wins after concatenation. We re-bind them
+    # under explicit names right here. See the alias block injected after
+    # the embedded code for details.
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.stderr.write("\nInterrupted.\n")
+        sys.exit(130)
