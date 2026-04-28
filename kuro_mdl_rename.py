@@ -2274,11 +2274,39 @@ def resolve_project_root(user_path):
         if os.path.isdir(os.path.join(nested, "asset")):
             return nested, "Descending into nested project root: {}".format(nested)
 
+    # Last resort: produce a helpful error that lists what we DID find in
+    # the directory, so the user can spot a typo or a misplaced file.
+    try:
+        entries = sorted(os.listdir(p))
+    except OSError:
+        entries = []
+    if entries:
+        listing = []
+        for name in entries[:20]:  # cap to keep error readable
+            full = os.path.join(p, name)
+            tag = "<DIR>" if os.path.isdir(full) else "     "
+            listing.append("    {}  {}".format(tag, name))
+        if len(entries) > 20:
+            listing.append("    ... ({} more entries)".format(len(entries) - 20))
+        listing_text = "\n".join(listing)
+    else:
+        listing_text = "    (directory is empty)"
+
     raise FileNotFoundError(
-        "could not find an 'asset/' folder at, inside, or above {!r}.\n"
-        "Hint: point me at the project root (the folder that contains "
-        "'asset/'), or at the 'asset' folder itself, or run me from inside "
-        "the project with no arguments.".format(p)
+        "could not find anything to process in {p!r}.\n"
+        "I looked for:\n"
+        "  - an 'asset/' folder (an extracted Kuro project tree), or\n"
+        "  - one or more '.p3a' files (packed Kuro archives).\n"
+        "Neither was found.\n"
+        "\n"
+        "What's actually in this directory:\n"
+        "{listing}\n"
+        "\n"
+        "Hint: cd into a folder that contains 'asset/' or a '.p3a' file, or "
+        "pass the path to one as an argument:\n"
+        "    py kuro_mdl_rename.py C:\\path\\to\\project\n"
+        "    py kuro_mdl_rename.py C:\\path\\to\\archive.p3a".format(
+            p=p, listing=listing_text)
     )
 
 
@@ -3167,6 +3195,11 @@ def main(argv=None):
 
     try:
         return _run_main(args, src_p3a_path, src_extract_dir)
+    except FileNotFoundError as e:
+        # User-friendly error path -- no Python traceback for problems we
+        # can describe in plain English (e.g. nothing to process).
+        sys.stderr.write("ERROR: {}\n".format(e))
+        return 1
     finally:
         # Always clean up the transient P3A extraction directory.
         if src_extract_dir and os.path.exists(src_extract_dir):
