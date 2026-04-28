@@ -477,7 +477,8 @@ def load_costume_data(force_source=None, no_interactive=False, keep_extracted=Fa
 
     return costume_map if costume_map else None
 
-def find_and_print_duplicates(items, costume_map=None, ascii_safe=False):
+def find_and_print_duplicates(items, costume_map=None, ascii_safe=False,
+                              outfits_only=False):
     """
     Find and display duplicate records in the items list.
 
@@ -489,6 +490,10 @@ def find_and_print_duplicates(items, costume_map=None, ascii_safe=False):
     If ascii_safe is True, characters outside standard Latin are replaced
     with '?' for display (fallback for terminals that can't render symbols
     like the black diamond U+25C6).
+
+    If outfits_only is True, only groups whose entries are ALL costumes
+    (i.e. every item_id is present in costume_map) are shown — useful for
+    finding duplicate outfits.
 
     Returns total number of duplicate groups found.
     """
@@ -526,6 +531,20 @@ def find_and_print_duplicates(items, costume_map=None, ascii_safe=False):
 
     dup_ids   = {k: v for k, v in by_id.items()   if len(v) > 1}
     dup_names = {k: v for k, v in by_name.items() if len(v) > 1}
+
+    # Filter to outfit duplicates only: keep groups where every entry has
+    # a costume model name in costume_map (i.e. every entry would be
+    # rendered with [...] in the output).
+    if outfits_only:
+        if not costume_map:
+            print("Note: --duplicates-outfits requires t_costume data, "
+                  "but none was loaded.")
+            print("No matching items found.")
+            return 0
+        def all_outfits(entries):
+            return all(str(item_id) in costume_map for _, item_id, _ in entries)
+        dup_ids   = {k: v for k, v in dup_ids.items()   if all_outfits(v)}
+        dup_names = {k: v for k, v in dup_names.items() if all_outfits(v)}
 
     def fmt_costume(item_id):
         if costume_map and str(item_id) in costume_map:
@@ -613,6 +632,9 @@ def print_usage():
         "  --duplicates        Find and display all duplicate records\n"
         "                      (same ID, or identical technical item name).\n"
         "                      Ignores search_query when used.\n"
+        "  --duplicates-outfits  Same as --duplicates, but only shows groups\n"
+        "                      where every entry has a costume model name\n"
+        "                      (the [chr...] tag). Requires t_costume data.\n"
         "  --ascii             For --duplicates: replace non-Latin characters\n"
         "                      (e.g. game UI symbols like the black diamond)\n"
         "                      with '?' in the output. Use as a fallback if\n"
@@ -647,6 +669,9 @@ def print_usage():
         "  python find_all_items.py --duplicates\n"
         "      Finds and lists all items with duplicate IDs or identical names.\n"
         "\n"
+        "  python find_all_items.py --duplicates-outfits\n"
+        "      Same, but only outfit duplicates (entries with [chr...] tag).\n"
+        "\n"
         "IMPORTANT:\n"
         "  Use 'name:' prefix when searching for numbers in item names!\n"
         "  Otherwise, auto-detect will treat it as an ID search.\n"
@@ -669,6 +694,7 @@ def main():
     keep_extracted = False
     find_duplicates = False
     ascii_safe = False
+    outfits_only = False
     
     args = sys.argv[1:]
     
@@ -692,6 +718,9 @@ def main():
             keep_extracted = True
         elif arg == '--duplicates':
             find_duplicates = True
+        elif arg == '--duplicates-outfits':
+            find_duplicates = True
+            outfits_only = True
         elif arg == '--ascii':
             ascii_safe = True
         elif arg.startswith('--'):
@@ -764,7 +793,9 @@ def main():
     
     # --duplicates mode: find duplicates and exit (ignores search query)
     if find_duplicates:
-        find_and_print_duplicates(items, costume_map, ascii_safe=ascii_safe)
+        find_and_print_duplicates(items, costume_map,
+                                  ascii_safe=ascii_safe,
+                                  outfits_only=outfits_only)
         return
     
     # Build items dictionary
