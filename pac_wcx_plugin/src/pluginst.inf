@@ -1,0 +1,6 @@
+[plugininstall]
+type=wcx
+file=pac.wcx
+description=FPAC archive plugin (Trails in the Sky FC)
+defaultextension=pac
+defaultdir=pac
