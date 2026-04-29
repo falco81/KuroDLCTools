@@ -647,7 +647,7 @@ begin
     Exit;
   end;
 
-  if not (E.CmpType in [0, 1]) then begin Result := E_NOT_SUPPORTED; Exit; end;
+  if not (E.CmpType in [0, 1, 2, 3]) then begin Result := E_NOT_SUPPORTED; Exit; end;
 
   Buf := nil;
   if E.UncSize > 0 then GetMem(Buf, E.UncSize);
@@ -792,6 +792,13 @@ begin
   end;
 
   try
+    // Capture archive-level metadata so we round-trip the format
+    // properly (v1100 stays v1100, v1200 stays v1200, dictionary is
+    // preserved).
+    Result.SourceVersion := Arc.Version;
+    if Length(Arc.Dict) > 0 then
+      Result.SetDict(Arc.Dict);
+
     for i := 0 to High(Arc.Entries) do
     begin
       E := Arc.Entries[i];
@@ -824,7 +831,9 @@ var
 begin
   TempPath := ArcPath + '.tmp_p3awcx';
   try
-    W.WriteToFile(TempPath, 1100);
+    // Pass 0 → writer uses its own SourceVersion (set by
+    // CarryOverExisting). New archives default to v1100.
+    W.WriteToFile(TempPath, 0);
   except
     DeleteFile(TempPath);
     Result := E_EWRITE; Exit;
