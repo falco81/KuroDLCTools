@@ -11,7 +11,10 @@ archives from Falcom games (Kuro no Kiseki / Trails through Daybreak).
   File → Pack).
 - Create folder inside an archive (F7) — via sidecar file (see below).
 - Delete files from archive (F8 / Delete inside archive).
-- LZ4 compression / decompression.
+- All P3A compression types: `0` (none), `1` (LZ4), `2` (ZSTD),
+  `3` (ZSTD with dictionary). Both v1100 and v1200 archive formats
+  are supported, including round-trip preservation of the
+  per-archive ZSTD training dictionary.
 
 ## Installation
 
@@ -66,12 +69,13 @@ the list of folders you've created via F7.
 
 ## Known limitations
 
-- **ZSTD compression** (cmp_type=2/3) is neither read nor written.
-  If an archive has ZSTD entries, the plugin will list them but
-  cannot extract. For ZSTD use Python tools (`p3a_tool.exe`,
-  `kuro_mdl_rename.py`).
-- **v1200 write** is not supported (v1200 read works). Plugin always
-  writes v1100.
+- **New entries are written as LZ4** (cmp_type=1). When you modify a
+  ZSTD archive, existing ZSTD entries are preserved verbatim, but
+  any newly added/replaced files go in as LZ4. The game/Python tools
+  handle mixed-compression archives without issues — each entry has
+  its own `cmp_type`.
+- **v1200 archives stay v1200** on save, **v1100 archives stay v1100**.
+  The dictionary block (when present) is preserved across writes.
 - **File timestamps**: P3A doesn't store per-file times, so the plugin
   reports the archive file's mtime for all entries.
 - **Attributes**: P3A doesn't store them; plugin reports "archive"
