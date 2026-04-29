@@ -163,7 +163,7 @@ cd /path/to/p3a_wcx_source
 ./build.sh
 ```
 
-Produces `p3a.wcx64` (~480 KB on EL8 with mingw GCC 7.2.0; the exact
+Produces `p3a.wcx64` (~600 KB on EL8 with mingw GCC 7.2.0; the exact
 size depends on the mingw version — newer mingw produces slightly
 smaller binaries).
 
@@ -211,22 +211,27 @@ ignore. As noted in Step 2, FCL is not needed for this plugin.
 
 If you want to know exactly what's happening, or need to debug:
 
-### Step 1 — compile LZ4 to an object file
+### Step 1 — compile LZ4 and ZSTD to object files
 
 From the directory containing this `BUILD.md`:
 
 ```bash
 gcc -c -O3 -o src/lz4obj.o src/lz4/lz4.c
+gcc -c -O2 -DZSTDLIB_VISIBILITY= -DZSTD_DISABLE_ASM \
+    -o src/zstdobj.o src/zstd/zstddeclib.c
 ```
 
-Linux cross-compile:
+Linux cross-compile (replace `gcc` with `x86_64-w64-mingw32-gcc`):
 ```bash
 x86_64-w64-mingw32-gcc -c -O3 -o src/lz4obj.o src/lz4/lz4.c
+x86_64-w64-mingw32-gcc -c -O2 -DZSTDLIB_VISIBILITY= -DZSTD_DISABLE_ASM \
+    -o src/zstdobj.o src/zstd/zstddeclib.c
 ```
 
-This creates `src/lz4obj.o` (~110 KB). The file `src/lz4comp.pas`
-finds it via `{$L lz4obj.o}` (relative path — so it must sit in the
-same directory as the Pascal sources).
+This creates `src/lz4obj.o` (~110 KB) and `src/zstdobj.o` (~150 KB).
+The Pascal sources find them via `{$L lz4obj.o}` and `{$L zstdobj.o}`
+(relative paths — so they must sit in the same directory as the
+Pascal sources).
 
 ### Step 2 — compile the Pascal plugin
 
@@ -241,7 +246,7 @@ cd src
 fpc -Twin64 -Px86_64 -O2 -CX -XX p3a_wcx.pas -op3a.wcx64
 ```
 
-Produces `src/p3a.wcx64` (~450 KB DLL).
+Produces `src/p3a.wcx64` (~580 KB DLL).
 
 ---
 
@@ -296,12 +301,17 @@ src/
 ├── xxhash64.pas        pure Pascal XXH64 hash (verified against reference)
 ├── lz4dec.pas          pure Pascal LZ4 decompression
 ├── lz4comp.pas         wrapper around LZ4 reference C code (static link)
-├── p3alib.pas          P3A format: read + write
+├── zstddec.pas         wrapper around ZSTD single-file decoder (static link)
+├── p3alib.pas          P3A format: read + write, all cmp_types, v1100/v1200
 ├── p3a_wcx.pas         main DLL: WCX entry points, exports
-└── lz4/
-    ├── lz4.c           LZ4 reference C implementation (BSD 2-Clause)
-    ├── lz4.h           header
-    └── LICENSE         BSD 2-Clause license
+├── lz4/
+│   ├── lz4.c           LZ4 reference C implementation (BSD 2-Clause)
+│   ├── lz4.h           header
+│   └── LICENSE         BSD 2-Clause license
+└── zstd/
+    ├── zstddeclib.c    ZSTD single-file decoder (amalgamated)
+    ├── zstd.h          header
+    └── LICENSE         BSD-3-Clause / GPLv2 dual license
 
 tests/
 ├── testxxh.pas
@@ -310,6 +320,7 @@ tests/
 ├── testp3a.pas
 ├── testwrite.pas
 ├── testroundtrip.pas
+├── testroundv1200.pas  v1200+dict round-trip (read→write→read byte-identical)
 ├── testmarker.pas
 ├── testcleanup.pas
 └── testsidecar.pas

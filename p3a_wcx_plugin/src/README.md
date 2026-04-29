@@ -20,13 +20,20 @@ archives from Falcom games (Kuro no Kiseki / Trails through Daybreak).
 
 ## Compression
 
-- **Reading**: cmp_type 0 (none) and 1 (lz4). ZSTD (type 2/3) not
-  supported yet.
-- **Writing**: lz4 (cmp_type=1), with automatic fallback to
-  uncompressed (cmp_type=0) when lz4 doesn't shrink the file.
-  Existing entries are kept verbatim during archive modification
-  (no needless recompression).
-- Format version: **reads** v1100 and v1200, **writes** v1100.
+- **Reading**: all P3A compression types are supported:
+  `0` (none), `1` (LZ4), `2` (ZSTD), `3` (ZSTD with dictionary).
+  When the archive carries a per-archive ZSTD training dictionary
+  (`flags & 1 = 1`), the plugin loads it from the `P3ADICT` block
+  and threads it into the decompressor for every type-3 entry.
+- **Writing**: new entries are produced as LZ4 (cmp_type=1), with
+  automatic fallback to uncompressed (cmp_type=0) when LZ4 doesn't
+  shrink the file. Existing entries (any cmp_type, including ZSTD)
+  are kept verbatim during archive modification (no needless
+  decompress + recompress).
+- **Format version round-trip**: a v1200 archive stays v1200 on save,
+  a v1100 archive stays v1100. The ZSTD dictionary block, when
+  present, is also preserved verbatim — read→write of an unchanged
+  archive produces a byte-identical file.
 
 ## How to build
 
@@ -38,6 +45,19 @@ build.bat
 ```
 
 Produces `p3a.wcx64`.
+
+The `src/zstd/zstddeclib.c` file in this distribution is the
+single-file ZSTD decoder generated from the official
+[facebook/zstd](https://github.com/facebook/zstd) repository
+(`build/single_file_libs/create_single_file_decoder.sh`, version
+v1.5.6). To regenerate it manually from a fresh clone:
+
+```bash
+git clone --depth 1 --branch v1.5.6 https://github.com/facebook/zstd
+cd zstd/build/single_file_libs
+./create_single_file_decoder.sh
+cp zstddeclib.c /path/to/p3a_wcx_source/src/zstd/
+```
 
 ## How to install
 
@@ -58,11 +78,16 @@ it in TC for auto-install, or manually via Configuration → Options
 │   ├── xxhash64.pas
 │   ├── lz4dec.pas
 │   ├── lz4comp.pas
+│   ├── zstddec.pas
 │   ├── p3alib.pas
 │   ├── p3a_wcx.pas
-│   └── lz4/            LZ4 reference C implementation (BSD 2-Clause)
-│       ├── lz4.c
-│       ├── lz4.h
+│   ├── lz4/            LZ4 reference C implementation (BSD 2-Clause)
+│   │   ├── lz4.c
+│   │   ├── lz4.h
+│   │   └── LICENSE
+│   └── zstd/           ZSTD single-file decoder (BSD-3-Clause / GPLv2)
+│       ├── zstddeclib.c   amalgamated decompressor
+│       ├── zstd.h
 │       └── LICENSE
 └── tests/              verification programs (optional)
     ├── testxxh.pas
@@ -71,6 +96,7 @@ it in TC for auto-install, or manually via Configuration → Options
     ├── testp3a.pas
     ├── testwrite.pas
     ├── testroundtrip.pas
+    ├── testroundv1200.pas
     ├── testmarker.pas
     ├── testcleanup.pas
     └── testsidecar.pas
@@ -84,13 +110,14 @@ Key design decisions:
   live in `xxhash64.pas` and `lz4dec.pas` as pure Pascal
   implementations. No libc runtime dependency, small DLL.
 
-- **Static linking of C code for LZ4 compression.** Reimplementing
-  LZ4 compression in Pascal would take days and the algorithm is
-  occasionally optimized. Instead, the official `lib/lz4.c`
-  (BSD 2-Clause) is linked via the FPC `{$L lz4obj.o}` directive.
-  Stubs for `memcpy`/`memmove`/`memset`/`calloc`/`free`/`__chkstk_ms`
-  in `lz4comp.pas` route to the FPC runtime so the DLL doesn't
-  need to link libc.
+- **Static linking of C code for LZ4 compression and ZSTD
+  decompression.** Reimplementing these in Pascal would take a
+  substantial amount of work and the algorithms occasionally get
+  optimized. Instead, the official sources are linked via the FPC
+  `{$L lz4obj.o}` / `{$L zstdobj.o}` directives. Stubs in
+  `lz4comp.pas` (for `memcpy`/`memmove`/`memset`/`calloc`/`free`/
+  `__chkstk_ms`) and `zstddec.pas` (`malloc`) route to the FPC
+  runtime so the DLL doesn't pull in libc.
 
 - **TP3AWriter copy-vs-compress.** When modifying an existing archive
   (adding one file, deleting), the plugin **doesn't decompress** the

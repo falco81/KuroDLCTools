@@ -17,7 +17,7 @@ if "%FPC%"=="" set FPC=fpc
 if "%CC%"==""  set CC=gcc
 
 echo.
-echo === [1/2] Compiling LZ4 reference C implementation ===
+echo === [1/3] Compiling LZ4 reference C implementation ===
 echo.
 %CC% -c -O3 -o src\lz4obj.o src\lz4\lz4.c
 if errorlevel 1 (
@@ -31,7 +31,18 @@ if errorlevel 1 (
 )
 
 echo.
-echo === [2/2] Compiling Pascal plugin ===
+echo === [2/3] Compiling ZSTD reference C implementation ===
+echo.
+%CC% -c -O2 -DZSTDLIB_VISIBILITY= -DZSTD_DISABLE_ASM ^
+     -o src\zstdobj.o src\zstd\zstddeclib.c
+if errorlevel 1 (
+    echo.
+    echo ERROR: failed to compile src\zstd\zstddeclib.c
+    exit /b 1
+)
+
+echo.
+echo === [3/3] Compiling Pascal plugin ===
 echo.
 cd src
 %FPC% -O2 -CX -XX p3a_wcx.pas -op3a.wcx64
@@ -54,6 +65,7 @@ dir /B p3a.wcx64
 
 REM Clean up intermediate files
 del /Q src\lz4obj.o 2>nul
+del /Q src\zstdobj.o 2>nul
 del /Q src\*.ppu 2>nul
 del /Q src\*.o 2>nul
 del /Q src\*.or 2>nul
