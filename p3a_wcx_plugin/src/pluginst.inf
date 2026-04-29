@@ -1,0 +1,6 @@
+[plugininstall]
+type=wcx
+file=p3a.wcx
+description=P3A archive plugin (Falcom Kuro no Kiseki / Trails through Daybreak)
+defaultextension=p3a
+defaultdir=p3a
