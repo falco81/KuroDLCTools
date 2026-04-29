@@ -103,6 +103,110 @@ Produces `p3a.wcx64` for Windows.
 
 ---
 
+## Option C: cross-compile from Linux (AlmaLinux / Rocky / RHEL)
+
+This is more involved than Debian because the EPEL `fpc` package on
+the RHEL family ships only the Linux runtime — the win64 cross-RTL
+units have to be built locally. The procedure below is verified
+end-to-end on **AlmaLinux 8.10** with `fpc-3.2.0`. AlmaLinux 9 / Rocky
+9 work the same way, only the secondary repo is named `crb` instead
+of `powertools`.
+
+### Step 1 — install the toolchain
+
+```bash
+# Enable EPEL (provides fpc, fpc-src) and PowerTools/CRB (provides mingw-w64-gcc)
+sudo dnf install -y epel-release make
+sudo dnf config-manager --set-enabled powertools     # AlmaLinux/Rocky 8
+# sudo dnf config-manager --set-enabled crb          # AlmaLinux/Rocky 9 — use this line instead
+
+# Install Free Pascal, its sources (needed for cross-RTL), and MinGW-w64
+sudo dnf install -y fpc fpc-src mingw64-gcc
+```
+
+### Step 2 — build the win64 cross-RTL
+
+The EPEL `fpc` package only includes pre-built units for `x86_64-linux`.
+The `fpc-src` package puts the FPC source tree into `/usr/share/fpcsrc/`,
+which is read-only. Copy it somewhere writable, build the win64 RTL,
+and install:
+
+```bash
+cp -r /usr/share/fpcsrc /tmp/fpcsrc
+
+cd /tmp/fpcsrc/rtl
+make clean all install \
+    OS_TARGET=win64 CPU_TARGET=x86_64 \
+    BINUTILSPREFIX=x86_64-w64-mingw32- \
+    INSTALL_BASEDIR=/usr/lib64/fpc/3.2.0
+```
+
+That's it for the FPC side. **You do not need to build the FCL** —
+in FPC 3.2.0 (which is what EPEL ships), `Classes`, `SysUtils`, `Math`
+and `Windows` are all part of RTL itself. If you try to build the FCL,
+it will fail at the `fpmake` linker step (missing `crt*.o`,
+`-lpthread`, `-lc`); that error is harmless and can be ignored —
+you already have everything the plugin needs.
+
+### Step 3 — verify and build
+
+```bash
+ls /usr/lib64/fpc/3.2.0/units/x86_64-win64/rtl/system.ppu
+ls /usr/lib64/fpc/3.2.0/units/x86_64-win64/rtl/classes.ppu
+ls /usr/lib64/fpc/3.2.0/units/x86_64-win64/rtl/sysutils.ppu
+```
+
+All three files must exist. Then build the plugin itself:
+
+```bash
+cd /path/to/p3a_wcx_source
+./build.sh
+```
+
+Produces `p3a.wcx64` (~480 KB on EL8 with mingw GCC 7.2.0; the exact
+size depends on the mingw version — newer mingw produces slightly
+smaller binaries).
+
+### Verify the DLL exports
+
+```bash
+x86_64-w64-mingw32-objdump -p p3a.wcx64 | grep -A 25 "\[Ordinal/Name"
+```
+
+You should see all 19 WCX entry points (CanYouHandleThisFile,
+CanYouHandleThisFileW, CloseArchive, DeleteFiles, DeleteFilesW,
+GetPackerCaps, OpenArchive, OpenArchiveW, PackFiles, PackFilesW,
+ProcessFile, ProcessFileW, ReadHeader, ReadHeaderEx, ReadHeaderExW,
+SetChangeVolProc, SetChangeVolProcW, SetProcessDataProc,
+SetProcessDataProcW).
+
+### Common pitfalls on RHEL family
+
+**`No matching repo to modify: crb`** — you're on AlmaLinux 8, where
+the repo is named `powertools`, not `crb`. (Or your distro doesn't
+ship the AlmaLinux/Rocky default repo files, in which case
+`dnf install -y almalinux-release` or `rocky-release` re-creates them.)
+
+**`No match for argument: mingw64-gcc`** — the secondary repo isn't
+enabled. `dnf repolist all` should show `powertools` (EL8) or `crb`
+(EL9) as `enabled`. If `dnf config-manager` says it's missing too,
+install `dnf-plugins-core` first, or just edit
+`/etc/yum.repos.d/almalinux-powertools.repo` (or `-crb.repo`) and
+flip `enabled=0` to `enabled=1`.
+
+**`bash: make: command not found`** — minimal AlmaLinux installs don't
+include `make`. `dnf install -y make` fixes it.
+
+**`Fatal: Can't find unit system used by p3a_wcx`** — the win64
+cross-RTL hasn't been installed. Step 2 above is what installs it.
+After that step, `/usr/lib64/fpc/3.2.0/units/x86_64-win64/rtl/system.ppu`
+must exist.
+
+**FCL build fails with `cannot find -lpthread` / `crti.o not found`** —
+ignore. As noted in Step 2, FCL is not needed for this plugin.
+
+---
+
 ## Manual procedure (if the build script fails)
 
 If you want to know exactly what's happening, or need to debug:
