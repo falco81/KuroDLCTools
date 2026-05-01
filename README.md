@@ -1,17 +1,17 @@
 # KuroDLC Modding Toolkit
 
-A comprehensive Python toolkit for creating and managing DLC mods for games using the KuroDLC format. The toolkit covers item discovery, ID management, conflict resolution, shop assignment, schema conversion from KuroTools, ID allocation visualization, MDL-to-DLC entry generation, per-mdl asset namespacing for game directories, and 3D model viewing with textures, animations, and scene rendering.
+A comprehensive Python toolkit for creating and managing DLC mods for games using the KuroDLC format. This toolkit provides utilities for item discovery, ID management, conflict resolution, shop assignment automation, **schema conversion from KuroTools**, **ID allocation visualization**, **automatic MDL-to-DLC entry generation**, and **3D model viewing with textures, animations, and scene rendering**.
 
 [![Python Version](https://img.shields.io/badge/python-3.7%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](LICENSE)
 
 ---
 
-## 3D Model Viewer Overview
+## 3D Model Viewer — Changelog
 
-**`viewer_mdl_textured_anim.py` / `.exe`** — full-featured 3D model viewer with textures, skeleton, animations, physics, controller support, scene mode, FXO shader fallback, video recording, skybox, lighting, mesh focus and highlighting.
+**viewer_mdl_textured_anim.py/exe** — full-featured 3D model viewer with textures, skeleton, animations, physics, controller support, scene mode, and more.
 
-Ideally associate the `.exe` with `.mdl` files. For correct display of textures the viewer expects the standard folder structure relative to the model file. For full functionality the model needs all referenced data extracted in the standard game directory layout, including `model_info` and the `.mdl` with animations.
+Ideally associate the .exe with .mdl files. For correct display of textures it looks for the standard folder structure. For proper function it needs to have all necessary data extracted in the game data structure, including `model_info` and `.mdl` with animations.
 
 ```
 └───asset
@@ -23,42 +23,130 @@ Ideally associate the `.exe` with `.mdl` files. For correct display of textures 
         └───shader
 ```
 
-### Capabilities at a glance
-
-- **Textures and materials** — DDS texture loading with path resolution under `asset/dx11/image/`
-- **Skeleton and animations** — T-Pose, Idle, Wave, Walk, plus facial animations
-- **Physics** — character physics with collision, intensity controls, mouse-driven character movement
-- **Controllers** — DualSense, DualShock, Switch Pro, Generic gamepads; keyboard fallback (WSAD)
-- **Shaders** — game FXO shaders when available, generated shaders as a fallback (force generated shaders with `--no-shaders`)
-- **Camera** — orbit camera plus 3D FreeCam mode for landscapes, buildings, and other large geometry
-- **Mesh tools** — focus on the entire model or on individual meshes; meshes whose names contain `box`, `shadow`, or `kage` are hidden by default
-- **Lighting and skybox** — adjustable lighting, background color, skybox support, emissive_g fix
-- **Recording** — video recording and screenshots with quality settings
-- **Scene mode** — `--scene` flag for rendering map / building scene JSONs in `scene/`
-
-### Screenshots
-
+### Ver 1.0 — viewer_mdl_textured_anim.py/exe
+skybox support, changing lighting and background colors
 <img src="doc/viewer_anim10.png" width="100%">
+
+## New Features in Beta
+
+- **Bug fixes**
+- **Added controller support**
+- **Binary format support** – loading files from `model_info` with autodetection
+- **UI overhaul** – complete redesign of the entire interface
+- **Video recording** – including quality settings for video and screenshots
+- **Physics improvements**
+  - Still has known bugs
+  - Physics now reacts to character movements with the mouse (requires physics display enabled in UI)
+- **fixed bug in controller autodetection**
+- **added support for additional controllers, DualSense, DualShock, Switch Pro, Generic**
+- **support for keyboard control if controller is not detected (WSAD)**
+- **improved controller visualization in overlay**
+- **3D FreeCam mode for viewing models such as landscapes, buildings, etc.**
+- **support for game shader files (FXO), fallback to original shaders if not available or force fallback with --no-shaders**
+- **adding a focus function in the UI on the overall model and within individual meshes, for large models such as landscapes, etc.**
+- **mesh highlighting, meshes with box, shadow, kage in the name are hidden by default**
+- **support for lighting settings, enabling and disabling FXO shaders on the fly**
+- **emissive_g fix**
+- **facial animations**
+- **change exe file icon <img src="viewer_mdl/app.ico" width="20">**
+- **skybox support, changing lighting and background colors**
+---
+
+### Beta9
+added facial animations
+change exe file icon <img src="viewer_mdl/app.ico" width="20"> (`-m PyInstaller --onefile --icon=app.ico`)
+<img src="doc/viewer_anim9.gif" width="100%">
 <img src="doc/viewer_anim9.png" width="100%">
+
+### Beta8
+mesh highlighting, meshes with box, shadow, kage in the name are hidden by default
+support for lighting settings, enabling and disabling FXO shaders on the fly
 <img src="doc/viewer_anim8b.png" width="100%">
+<img src="doc/viewer_anim8.gif" width="100%">
+<img src="doc/viewer_anim8.png" width="100%">
+
+### Beta7
+support for game shader files (FXO), fallback to original shaders if not available or force fallback with `--no-shaders`
+```
+└───asset
+    ├───common
+    │   └───model
+    │   └───model_info
+    └───dx11
+        └───image
+        └───shader
+```
+Game FXO shaders
+<img src="doc/viewer_anim7a.gif" width="100%">
 <img src="doc/viewer_anim7a.png" width="100%">
+
+Generated shaders — no FXO files
+<img src="doc/viewer_anim7b.gif" width="100%">
+<img src="doc/viewer_anim7b.png" width="100%">
+
+### Beta6
+3D FreeCam mode
+<img src="doc/viewer_anim6.gif" width="100%">
+<img src="doc/viewer_anim6.png" width="100%">
+
+### Beta5
+Added controller support
+<img src="doc/viewer_anim5a.png" width="100%">
+<img src="doc/viewer_anim5b.png" width="100%">
+
+### Beta4
+character movement support
+<img src="doc/viewer_anim4.gif" width="100%">
+<img src="doc/viewer_anim4.png" width="100%">
+
+### Beta3
+demo with collision on/off, physics intensity, and more
+<img src="doc/viewer_anim3.gif" width="100%">
+<img src="doc/viewer_anim3.png" width="100%">
+
+### Beta2
+<img src="doc/viewer_anim2.png" width="100%">
+
+### Beta1
+<img src="doc/viewer_anim.png" width="100%">
+
+### Alpha — viewer_mdl_textured_scene.py
+i may never finish it :)<br>
+Scene viewer alpha
+```
+├───scene
+└───asset
+    ├───common
+    │   └───model
+    │   └───model_info
+    └───dx11
+        └───image
+        └───shader
+Example:
+python.exe ...\asset\common\model\viewer_mdl_textured_scene.py --scene mp1010.json
+```
+
 <img src="doc/scene.png" width="100%">
+building interiors
+<img src="doc/scene2a.png" width="100%">
+new UI for actors
+<img src="doc/scene2b.png" width="100%">
 
-### Companion viewers
+### Legacy viewers
 
-- **`viewer_mdl_textured_scene.py`** — scene viewer (binary scene JSON parsing, FPS camera, full viewer UI)
-- **`viewer_mdl_textured.py`** — textured model preview without animations
-- **`viewer_mdl.py`** — generates a shareable HTML viewer (Three.js)
-- **`viewer_mdl_window.py`** — native window viewer (no files left behind)
-- **`viewer_mdl_optimized.py`** — base64-compressed HTML for very large models
-- **`viewer.py`** — minimal standalone core viewer
+**viewer_mdl_textured.exe** — textured model preview without animations
+<img src="doc/viewer.png" width="100%">
+
+New UI
+<img src="doc/viewer2.png" width="100%">
 
 > **⚠️ GPL-3.0 License Notice**
 > This project uses libraries from [eArmada8/kuro_dlc_tool](https://github.com/eArmada8/kuro_dlc_tool) which are licensed under GPL-3.0.
-> Therefore, this entire toolkit is distributed under GPL-3.0.
+> Therefore, this entire toolkit is also distributed under GPL-3.0 license.
 > See [License](#-license) section for details.
 
 ---
+
 
 ## 📋 Table of Contents
 
