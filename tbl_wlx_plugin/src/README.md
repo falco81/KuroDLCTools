@@ -1,7 +1,7 @@
 # TBL Lister Plugin — source distribution
 
 This is the source code for the **TBL WLX Lister plugin** for Total
-Commander, version 1.3.36. The plugin reads, browses, and edits Falcom
+Commander, version 1.3.37. The plugin reads, browses, and edits Falcom
 `#TBL` data tables (Trails of Cold Steel, Trails through Daybreak,
 Trails in the Sky 1, Ys X, etc.).
 
@@ -59,7 +59,7 @@ export FPCSRC=/opt/fpc-3.2.2
 .
 ├── README.md          ← this file
 ├── BUILD.md           ← detailed build instructions per platform
-├── CHANGELOG.md       ← v1.0 → v1.3.36 highlights
+├── CHANGELOG.md       ← v1.0 → v1.3.37 highlights
 ├── TROUBLESHOOTING.md ← common end-user issues
 ├── build.sh           ← Linux/macOS cross-compile to Win64
 ├── build.bat          ← Windows native build
@@ -105,6 +105,6 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for self-diagnosis. If
 that doesn't help, file an issue with:
 
 - Total Commander version
-- Plugin version (1.3.36 if from this source tree)
+- Plugin version (1.3.37 if from this source tree)
 - The misbehaving `.tbl` file (or its first 256 bytes)
 - A copy of your `tbl_wlx.ini` if you've changed `PreferredGame`
