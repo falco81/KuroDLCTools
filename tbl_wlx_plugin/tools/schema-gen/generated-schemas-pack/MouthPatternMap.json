@@ -1,0 +1,9 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2 from 144 sampled rows across 4 TBL files. Field names are placeholders. Verify before save.",
+		"schema": {
+			"field0": "ushort"
+		}
+	}
+}
