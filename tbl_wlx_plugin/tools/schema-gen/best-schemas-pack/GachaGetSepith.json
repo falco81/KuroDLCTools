@@ -1,0 +1,9 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2; types best-effort inference from binary analysis. No direct EXE evidence; section detected only in TBL files.",
+		"schema": {
+			"field0": "float"
+		}
+	}
+}

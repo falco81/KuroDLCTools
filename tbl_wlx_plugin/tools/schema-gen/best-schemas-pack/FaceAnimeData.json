@@ -1,0 +1,19 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2; types best-effort inference from binary analysis. Confirmed in EXE RTTI/strings of: Beyond Horizon, Daybreak, Daybreak II, Sky 1st, Ys X.",
+		"schema": {
+			"field0": "uint",
+			"field1": "uint",
+			"field2": "toffset",
+			"field3": "toffset"
+		},
+		"exe_evidence": [
+			"Beyond Horizon",
+			"Daybreak",
+			"Daybreak II",
+			"Sky 1st",
+			"Ys X"
+		]
+	}
+}

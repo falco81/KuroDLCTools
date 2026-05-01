@@ -1,0 +1,31 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"category": "toffset",
+			"desc": "toffset",
+			"param1": "uint",
+			"param2": "uint",
+			"param3": "uint",
+			"param4": "uint",
+			"param5": "uint",
+			"param6": "uint",
+			"param7": "uint",
+			"param8": "uint",
+			"param9": "uint",
+			"param10": "uint",
+			"param11": "uint",
+			"param12": "uint",
+			"param13": "uint",
+			"param14": "uint",
+			"param15": "uint",
+			"param16": "uint",
+			"param17": "uint",
+			"param18": "uint",
+			"pad": "ulong"
+		},
+		"note": "Manually verified \u2014 types confirmed by per-offset analysis on real TBL data. No direct EXE evidence; section detected only in TBL files."
+	}
+}

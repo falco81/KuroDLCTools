@@ -1,0 +1,17 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2; types best-effort inference from binary analysis. Confirmed in EXE RTTI/strings of: Sky 1st.",
+		"schema": {
+			"field0": "int",
+			"field1": "uint",
+			"field2": "toffset",
+			"field3": "uint",
+			"field4": "uint",
+			"field5": "toffset"
+		},
+		"exe_evidence": [
+			"Sky 1st"
+		]
+	}
+}

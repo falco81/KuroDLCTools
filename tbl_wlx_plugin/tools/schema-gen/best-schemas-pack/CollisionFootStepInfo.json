@@ -1,0 +1,21 @@
+{
+	"GENERATED": {
+		"game": "Multi",
+		"schema": {
+			"name": "toffset",
+			"sound1": "toffset",
+			"sound2": "toffset",
+			"volume": "float",
+			"pitch": "float",
+			"flag1": "uint",
+			"flag2": "uint"
+		},
+		"note": "Manually verified \u2014 types confirmed by per-offset analysis on real TBL data. Confirmed in EXE RTTI/strings of: Beyond Horizon, Daybreak, Daybreak II, Sky 1st.",
+		"exe_evidence": [
+			"Beyond Horizon",
+			"Daybreak",
+			"Daybreak II",
+			"Sky 1st"
+		]
+	}
+}

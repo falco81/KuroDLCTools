@@ -1,0 +1,21 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "ulong",
+			"level": "uint",
+			"pad": "uint",
+			"stat1": "uint",
+			"stat2": "uint",
+			"stat3": "uint",
+			"stat4": "uint",
+			"stat5": "uint",
+			"stat6": "uint",
+			"stat7": "uint",
+			"stat8": "uint",
+			"stat9": "uint",
+			"stat10": "uint"
+		},
+		"note": "Manually verified \u2014 types confirmed by per-offset analysis on real TBL data. No direct EXE evidence; section detected only in TBL files."
+	}
+}

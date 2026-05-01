@@ -1,0 +1,31 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2; types best-effort inference from binary analysis. Confirmed in EXE RTTI/strings of: Ys X.",
+		"schema": {
+			"field0": "uint",
+			"field1": "float",
+			"field2": "float",
+			"field3": "uint",
+			"field4": "toffset",
+			"field5": "toffset",
+			"field6": "float",
+			"field7": "uint",
+			"field8": "toffset",
+			"field9": "toffset",
+			"field10": "float",
+			"field11": "float",
+			"field12": "uint",
+			"field13": "float",
+			"field14": "float",
+			"field15": "float",
+			"field16": "float",
+			"field17": "float",
+			"field18": "float",
+			"field19": "uint"
+		},
+		"exe_evidence": [
+			"Ys X"
+		]
+	}
+}

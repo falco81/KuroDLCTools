@@ -1,0 +1,38 @@
+{
+	"GENERATED": {
+		"game": "Kuro",
+		"schema": {
+			"stage_id": "uint",
+			"sub_idx": "uint",
+			"tile_2": "int",
+			"tile_3": "int",
+			"tile_4": "int",
+			"tile_5": "int",
+			"tile_6": "int",
+			"tile_7": "int",
+			"tile_8": "int",
+			"tile_9": "int",
+			"tile_10": "int",
+			"tile_11": "int",
+			"tile_12": "int",
+			"tile_13": "int",
+			"tile_14": "int",
+			"tile_15": "int",
+			"tile_16": "int",
+			"tile_17": "int",
+			"tile_18": "int",
+			"tile_19": "int",
+			"tile_20": "int",
+			"tile_21": "int",
+			"tile_22": "int",
+			"tile_23": "int",
+			"tile_24": "int",
+			"pad": "uint"
+		},
+		"note": "Manually verified \u2014 types confirmed by per-offset analysis on real TBL data. Confirmed in EXE RTTI/strings of: Beyond Horizon, Daybreak II.",
+		"exe_evidence": [
+			"Beyond Horizon",
+			"Daybreak II"
+		]
+	}
+}

@@ -1,0 +1,26 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2; types best-effort inference from binary analysis. Confirmed in EXE RTTI/strings of: Beyond Horizon.",
+		"schema": {
+			"field0": "uint",
+			"field1": "uint",
+			"field2": "toffset",
+			"field3": "uint",
+			"field4": "uint",
+			"field5": "toffset",
+			"field6": "uint",
+			"field7": "uint",
+			"field8": "toffset",
+			"field9": "uint",
+			"field10": "uint",
+			"field11": "toffset",
+			"field12": "uint",
+			"field13": "uint",
+			"field14": "toffset"
+		},
+		"exe_evidence": [
+			"Beyond Horizon"
+		]
+	}
+}

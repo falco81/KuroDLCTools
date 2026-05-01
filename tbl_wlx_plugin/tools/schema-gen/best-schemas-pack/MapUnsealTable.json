@@ -1,0 +1,16 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2; types best-effort inference from binary analysis. Confirmed in EXE RTTI/strings of: Ys X.",
+		"schema": {
+			"field0": "toffset",
+			"field1": "float",
+			"field2": "float",
+			"field3": "uint",
+			"field4": "uint"
+		},
+		"exe_evidence": [
+			"Ys X"
+		]
+	}
+}

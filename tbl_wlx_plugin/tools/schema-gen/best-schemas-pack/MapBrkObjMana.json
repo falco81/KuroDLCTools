@@ -1,0 +1,14 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"pos_x": "float",
+			"pos_y": "float",
+			"pos_z": "float",
+			"flag": "uint"
+		},
+		"note": "Manually verified \u2014 types confirmed by per-offset analysis on real TBL data. No direct EXE evidence; section detected only in TBL files."
+	}
+}

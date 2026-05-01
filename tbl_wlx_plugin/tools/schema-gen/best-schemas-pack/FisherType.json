@@ -1,0 +1,13 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2; types best-effort inference from binary analysis. Confirmed in EXE RTTI/strings of: Daybreak.",
+		"schema": {
+			"field0": "uint",
+			"field1": "uint"
+		},
+		"exe_evidence": [
+			"Daybreak"
+		]
+	}
+}

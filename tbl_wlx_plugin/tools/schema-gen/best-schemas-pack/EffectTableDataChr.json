@@ -1,0 +1,11 @@
+{
+	"GENERATED": {
+		"game": "Kuro",
+		"schema": {
+			"chr_id": "uint",
+			"flag": "uint",
+			"effect": "toffset"
+		},
+		"note": "Manually verified \u2014 types confirmed by per-offset analysis on real TBL data. No direct EXE evidence; section detected only in TBL files."
+	}
+}

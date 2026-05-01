@@ -1,0 +1,18 @@
+{
+	"GENERATED": {
+		"game": "Kuro",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"item_id": "uint",
+			"count": "uint",
+			"rarity": "uint",
+			"rate": "uint",
+			"flags": "uint",
+			"pad1": "uint",
+			"icon": "toffset",
+			"category": "ulong"
+		},
+		"note": "Manually verified \u2014 types confirmed by per-offset analysis on real TBL data. No direct EXE evidence; section detected only in TBL files."
+	}
+}

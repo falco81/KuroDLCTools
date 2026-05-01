@@ -1,0 +1,26 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"group": "toffset",
+			"pos_x": "float",
+			"pos_y": "float",
+			"pos_z": "float",
+			"rot": "float",
+			"unk1": "uint",
+			"unk2": "uint",
+			"flag": "uint",
+			"pad": "uint"
+		},
+		"note": "Manually verified \u2014 types confirmed by per-offset analysis on real TBL data. Confirmed in EXE RTTI/strings of: Beyond Horizon, Daybreak, Daybreak II, Sky 1st, Ys X.",
+		"exe_evidence": [
+			"Beyond Horizon",
+			"Daybreak",
+			"Daybreak II",
+			"Sky 1st",
+			"Ys X"
+		]
+	}
+}
