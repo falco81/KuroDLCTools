@@ -2338,6 +2338,246 @@ def index_image_dir(project_root):
 
 
 # ---------------------------------------------------------------------------
+# Multi-archive game directory index (for --game mode)
+# ---------------------------------------------------------------------------
+# A Trails / ED9 game directory holds the asset tree split across many .p3a
+# archives at its top level (asset_common_model.p3a, asset_common_model_info.p3a,
+# asset_image.p3a, asset_image_eng.p3a, ...). The exact filenames vary per
+# game version, so we identify the relevant archives by content -- we read
+# each .p3a's TOC and keep the ones that contribute entries under
+# asset/common/model/, asset/common/model_info/, or asset/dx11/image/.
+#
+# We never extract eagerly: the TOC tells us where each entry lives and
+# how to read its bytes; payloads are only extracted when the renaming
+# pipeline actually needs them, into a transient scratch directory.
+# ---------------------------------------------------------------------------
+ASSET_PREFIX_MODEL      = "asset/common/model/"
+ASSET_PREFIX_MODEL_INFO = "asset/common/model_info/"
+ASSET_PREFIX_IMAGE      = "asset/dx11/image/"
+
+
+class P3AGameDirIndex:
+    """Lazy multi-archive index of a Trails / ED9 game directory.
+
+    On construction, scans every '*.p3a' file directly inside `game_dir`
+    (top-level only -- subdirectories like 'mods/' are NOT scanned, since
+    they are typically downstream mods rather than base assets), reads
+    each archive's TOC, and merges every entry whose path lives under one
+    of the three asset prefixes we care about (model / model_info / image)
+    into a single flat dict.
+
+    Conflict policy: when the same entry path is present in more than one
+    .p3a, the LAST archive read wins (alphabetical by filename). This is
+    a deterministic but ad-hoc choice; the engine's actual load order is
+    unknown to this script. A debug log line is emitted for every
+    overridden entry.
+
+    No payload bytes are read at scan time -- only the TOC and (for
+    zstd-dict archives) the shared dictionary.
+    """
+
+    # File patterns we deliberately skip even before touching them, because
+    # they are obviously not base-asset archives in any game version. This
+    # is a heuristic short-circuit: anything not skipped here is opened and
+    # tested by content.
+    _SKIP_DIRS = ("mods",)  # don't recurse into these subdirs
+
+    def __init__(self, game_dir, progress=None):
+        self.game_dir = os.path.abspath(game_dir)
+        # rel_path (lowercased, forward-slashed) -> (p3a_path, entry, p3a_dict)
+        self.entries = {}
+        # p3a_path -> (header, p3a_dict, [entries]) -- kept so debug code
+        # can introspect; not used at runtime.
+        self.archives = {}
+        # archives that contributed at least one asset/* entry to the index
+        self.contributing_p3a = []
+        self._scan(progress)
+
+    def _candidate_archives(self):
+        """Return sorted list of *.p3a files at the game-dir top level."""
+        out = []
+        try:
+            names = os.listdir(self.game_dir)
+        except OSError:
+            return []
+        for n in names:
+            full = os.path.join(self.game_dir, n)
+            if os.path.isfile(full) and n.lower().endswith(".p3a"):
+                out.append(full)
+        out.sort(key=lambda p: os.path.basename(p).lower())
+        return out
+
+    def _scan(self, progress):
+        candidates = self._candidate_archives()
+        for i, p3a_path in enumerate(candidates, 1):
+            if progress is not None:
+                progress(i, len(candidates), p3a_path)
+            try:
+                with open(p3a_path, "rb") as fh:
+                    archive = p3a_class()
+                    archive.f = fh
+                    header, entries, p3a_dict = archive.read_p3a_toc()
+                if not entries:
+                    continue
+            except Exception as e:
+                LOG.warning("[game] could not read %s: %s",
+                            os.path.basename(p3a_path), e)
+                continue
+
+            self.archives[p3a_path] = (header, p3a_dict, entries)
+            contributed = 0
+            for ent in entries:
+                # P3A stores names with forward slashes in lowercase; be
+                # defensive in case some archive deviates.
+                name = ent["name"].replace("\\", "/").lower()
+                if not (name.startswith(ASSET_PREFIX_MODEL)
+                        or name.startswith(ASSET_PREFIX_MODEL_INFO)
+                        or name.startswith(ASSET_PREFIX_IMAGE)):
+                    continue
+                if name in self.entries:
+                    prev_path = self.entries[name][0]
+                    LOG.debug("[game] entry %s overridden: %s -> %s",
+                              name, os.path.basename(prev_path),
+                              os.path.basename(p3a_path))
+                self.entries[name] = (p3a_path, ent, p3a_dict)
+                contributed += 1
+            if contributed:
+                self.contributing_p3a.append(p3a_path)
+
+    # --- listing helpers (no extraction) ---
+
+    def list_mdls(self):
+        """Return sorted list of asset/common/model/<basename>.mdl entries
+        (top-level only -- entries in nested subdirectories are ignored,
+        matching the on-disk find_mdls() contract)."""
+        out = []
+        for name in self.entries:
+            if not name.startswith(ASSET_PREFIX_MODEL):
+                continue
+            tail = name[len(ASSET_PREFIX_MODEL):]
+            if "/" in tail:
+                continue  # nested subfolder; ignore
+            if tail.endswith(".mdl"):
+                out.append(name)
+        out.sort()
+        return out
+
+    def list_mi_index(self):
+        """Return {lower_basename_no_ext: rel_path} for asset/common/model_info/*.mi
+        so the caller can look up an .mi side-car by its mdl basename."""
+        idx = {}
+        for name in self.entries:
+            if not name.startswith(ASSET_PREFIX_MODEL_INFO):
+                continue
+            tail = name[len(ASSET_PREFIX_MODEL_INFO):]
+            if "/" in tail or not tail.endswith(".mi"):
+                continue
+            stem = tail[:-3]
+            idx[stem.lower()] = name
+        return idx
+
+    def list_image_index(self):
+        """Return {lower_filename: lower_filename} for asset/dx11/image/*.
+
+        The mapping mirrors the on-disk index_image_dir() format. P3A names
+        are stored in lowercase, so the 'actual filename' is also lower.
+        """
+        idx = {}
+        for name in self.entries:
+            if not name.startswith(ASSET_PREFIX_IMAGE):
+                continue
+            tail = name[len(ASSET_PREFIX_IMAGE):]
+            if "/" in tail:
+                continue
+            if tail == "desktop.ini":
+                continue
+            idx[tail.lower()] = tail
+        return idx
+
+    # --- extraction (lazy, single file) ---
+
+    def extract(self, rel_path, target_path):
+        """Extract one virtual file to `target_path` on disk. Creates parent
+        directories. Raises FileNotFoundError if the entry isn't in the index."""
+        key = rel_path.replace("\\", "/").lower()
+        record = self.entries.get(key)
+        if record is None:
+            raise FileNotFoundError(rel_path)
+        p3a_path, entry, p3a_dict = record
+        os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
+        with open(p3a_path, "rb") as fh:
+            archive = p3a_class()
+            archive.f = fh
+            data = archive.read_file(entry, p3a_dict)
+        if not data:
+            raise IOError(
+                "extraction of {} from {} returned empty data (corrupt?)".format(
+                    rel_path, os.path.basename(p3a_path)))
+        with open(target_path, "wb") as fh2:
+            fh2.write(data)
+
+
+def _materialize_game_subset(game_idx, selected_mdl_rel_paths, scratch_dir):
+    """Materialize the .mdl files (and their .mi side-cars) for `selected_mdl_rel_paths`
+    into `scratch_dir`, preserving the asset/ tree structure. Returns a tuple
+    (mdl_count, mi_count, missing_mi_basenames).
+
+    Image references are NOT materialized here -- the caller resolves them
+    via build_plan() once the mdls are on disk, then calls back into
+    game_idx.extract() for each matched image. This avoids materialising
+    images that the mdl doesn't actually reference.
+    """
+    mi_index = game_idx.list_mi_index()
+    mdl_count = 0
+    mi_count = 0
+    missing_mi = []
+    for rel in selected_mdl_rel_paths:
+        target = os.path.join(scratch_dir, rel.replace("/", os.sep))
+        try:
+            game_idx.extract(rel, target)
+            mdl_count += 1
+        except (FileNotFoundError, IOError) as e:
+            LOG.warning("[game] failed to extract %s: %s", rel, e)
+            continue
+        # Compose .mi side-car lookup key: basename of the mdl, no ext.
+        base = os.path.splitext(os.path.basename(rel))[0]
+        mi_rel = mi_index.get(base.lower())
+        if mi_rel is None:
+            missing_mi.append(base)
+            continue
+        mi_target = os.path.join(scratch_dir, mi_rel.replace("/", os.sep))
+        try:
+            game_idx.extract(mi_rel, mi_target)
+            mi_count += 1
+        except (FileNotFoundError, IOError) as e:
+            LOG.warning("[game] failed to extract mi side-car %s: %s", mi_rel, e)
+    return mdl_count, mi_count, missing_mi
+
+
+def _materialize_plan_images(game_idx, plans, scratch_image_dir):
+    """For every image referenced in any plan's image_renames map, extract
+    the original from the game index into `scratch_image_dir`. Returns the
+    count of images extracted. Skips images already on disk."""
+    os.makedirs(scratch_image_dir, exist_ok=True)
+    needed = set()
+    for plan in plans:
+        for orig in plan.image_renames:
+            needed.add(orig)
+    n = 0
+    for img_name in sorted(needed):
+        target = os.path.join(scratch_image_dir, img_name)
+        if os.path.exists(target):
+            continue
+        rel = ASSET_PREFIX_IMAGE + img_name.lower()
+        try:
+            game_idx.extract(rel, target)
+            n += 1
+        except (FileNotFoundError, IOError) as e:
+            LOG.warning("[game] failed to extract image %s: %s", img_name, e)
+    return n
+
+
+# ---------------------------------------------------------------------------
 # Per-MDL plan
 # ---------------------------------------------------------------------------
 class MdlPlan:
@@ -2637,17 +2877,29 @@ def _normcase_abs(p):
     return os.path.normcase(os.path.abspath(p))
 
 
-def build_consumed_set(plans, src_image_dir):
+def build_consumed_set(plans, src_image_dir, protected_image_filenames=None):
     """Return the set of absolute, case-normalised source paths whose content
     is already represented in the output by a renamed counterpart -- the
     source mdls (renamed), source mis (renamed), and source images that
-    were matched and per-mdl-renamed."""
+    were matched and per-mdl-renamed.
+
+    `protected_image_filenames` is an optional iterable of original on-disk
+    image filenames (no path) that must NOT be marked consumed even if they
+    appear in some plan's image_renames. This is used when the run filters
+    the .mdl set to a subset and --keep is on: images referenced by the
+    SKIPPED .mdl files (which are copied verbatim by --keep) must remain
+    available in the output under their ORIGINAL names, so we leave them
+    out of the consumed set so enumerate_kept_files() picks them up.
+    """
     consumed = set()
+    protected = {n.lower() for n in (protected_image_filenames or [])}
     for plan in plans:
         consumed.add(_normcase_abs(plan.src_mdl))
         if plan.src_mi:
             consumed.add(_normcase_abs(plan.src_mi))
         for orig in plan.image_renames:
+            if orig.lower() in protected:
+                continue
             consumed.add(_normcase_abs(os.path.join(src_image_dir, orig)))
     return consumed
 
@@ -2795,6 +3047,453 @@ def apply_plan(plan, source_root, output_root, src_image_dir):
 
 
 # ---------------------------------------------------------------------------
+# MDL selection helpers (--only / --only-from / --select)
+# ---------------------------------------------------------------------------
+def _split_only_args(only_args):
+    """Flatten a list of --only values into individual selection tokens.
+
+    Each element of `only_args` may itself contain comma-separated tokens.
+    A trailing '.mdl' (any case) is stripped from each token. Whitespace
+    around tokens is trimmed; empty tokens are dropped.
+
+    Tokens may be literal mdl basenames OR glob patterns (containing '*',
+    '?', '[]') -- both flavours are accepted; glob expansion happens later
+    in _filter_mdls_by_names() once the discovered mdl list is known.
+
+    Returns a list of tokens in the order they appeared (preserving
+    duplicates so the caller can decide what to do with them).
+    """
+    out = []
+    for raw in only_args or []:
+        for tok in str(raw).split(","):
+            tok = tok.strip()
+            if not tok:
+                continue
+            if tok.lower().endswith(".mdl"):
+                tok = tok[:-4]
+            out.append(tok)
+    return out
+
+
+def _read_only_from_file(path):
+    """Read a list of selection tokens from a text file.
+
+    Format: one token per line. A '#' starts a line comment (text after it
+    is ignored). Blank lines are ignored. Trailing '.mdl' is stripped from
+    each token (case-insensitive). The file is read as UTF-8 with an
+    optional BOM.
+
+    Each line may be a literal mdl basename OR a glob pattern (containing
+    '*', '?', '[]'); both are accepted.
+
+    Raises OSError if the file cannot be opened.
+    """
+    names = []
+    with open(path, "r", encoding="utf-8-sig") as f:
+        for raw in f:
+            line = raw.split("#", 1)[0].strip()
+            if not line:
+                continue
+            if line.lower().endswith(".mdl"):
+                line = line[:-4]
+            names.append(line)
+    return names
+
+
+def _is_glob_pattern(token):
+    """Return True iff `token` looks like a glob pattern -- i.e. it contains
+    one of the fnmatch wildcard meta-characters: '*', '?', '['."""
+    return any(ch in token for ch in "*?[")
+
+
+def _glob_match_mdls(mdls, pattern):
+    """Return mdl paths whose basename (without .mdl) matches `pattern`
+    case-insensitively, in the order they appear in `mdls`.
+
+    Pattern may have a trailing '.mdl' which is stripped before matching.
+    Pattern syntax is fnmatch (Unix shell-style): '*' matches anything,
+    '?' matches one character, '[abc]' is a character class.
+
+    Returns an empty list when nothing matches.
+    """
+    import fnmatch
+    pat = pattern
+    if pat.lower().endswith(".mdl"):
+        pat = pat[:-4]
+    pat_lower = pat.lower()
+    out = []
+    for p in mdls:
+        base = os.path.splitext(os.path.basename(p))[0].lower()
+        if fnmatch.fnmatchcase(base, pat_lower):
+            out.append(p)
+    return out
+
+
+def _filter_mdls_by_names(mdls, requested_tokens):
+    """Resolve each requested token (literal basename or glob pattern) to
+    matching mdl paths and return (selected_paths, unknown_tokens).
+
+    Matching rules:
+      * Tokens are case-insensitive; an optional trailing '.mdl' is stripped
+        before matching.
+      * A token containing '*', '?' or '[' is treated as a glob pattern
+        and may match multiple mdls. A glob that matches NOTHING is
+        reported as unknown.
+      * Any other token is matched as an exact basename. A non-matching
+        literal token is reported as unknown.
+
+    The returned `selected_paths` preserves discovery order (i.e. the order
+    in `mdls`) and is deduplicated. `unknown_tokens` preserves the order
+    in which they were requested.
+    """
+    by_lower = {os.path.splitext(os.path.basename(p))[0].lower(): p for p in mdls}
+    selected = []
+    seen = set()
+    unknown = []
+    for n in requested_tokens:
+        key = n.strip()
+        if key.lower().endswith(".mdl"):
+            key = key[:-4]
+        if not key:
+            unknown.append(n)
+            continue
+        if _is_glob_pattern(key):
+            matches = _glob_match_mdls(mdls, key)
+            if not matches:
+                unknown.append(n)
+                continue
+            for m in matches:
+                if m in seen:
+                    continue
+                seen.add(m)
+                selected.append(m)
+            continue
+        match = by_lower.get(key.lower())
+        if match is None:
+            unknown.append(n)
+            continue
+        if match in seen:
+            continue
+        seen.add(match)
+        selected.append(match)
+    return selected, unknown
+
+
+def _resolve_selection_tokens(text, mdls, view_list):
+    """Parse one comma-separated selection input and resolve it to mdl paths.
+
+    Token grammar (each comma-separated token, case-insensitive, optional
+    trailing '.mdl' is stripped):
+      * 'all'                -> every entry of `view_list`
+      * '<int>'              -> the entry at that 1-based index in `view_list`
+      * '<int>-<int>'        -> inclusive range of view_list indices
+                                (reversed bounds are normalised)
+      * literal basename     -> exact match against `mdls` (NOT view_list,
+                                so 'add chr0001' works regardless of filter)
+      * glob pattern         -> fnmatch against basenames of `mdls`
+
+    Returns (paths, unmatched_tokens). `paths` is deduplicated and ordered
+    by first appearance. `unmatched_tokens` are the input tokens that
+    yielded nothing.
+    """
+    paths = []
+    unmatched = []
+    seen = set()
+    if not text:
+        return paths, unmatched
+
+    by_lower = {os.path.splitext(os.path.basename(p))[0].lower(): p for p in mdls}
+
+    for tok in str(text).split(","):
+        raw_tok = tok
+        tok = tok.strip()
+        if not tok:
+            continue
+
+        if tok.lower() == "all":
+            for p in view_list:
+                if p not in seen:
+                    seen.add(p)
+                    paths.append(p)
+            continue
+
+        m = re.match(r"^(\d+)\s*-\s*(\d+)$", tok)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            if a > b:
+                a, b = b, a
+            if a < 1 or b > len(view_list):
+                unmatched.append(raw_tok.strip())
+                continue
+            for i in range(a, b + 1):
+                p = view_list[i - 1]
+                if p not in seen:
+                    seen.add(p)
+                    paths.append(p)
+            continue
+
+        if tok.isdigit():
+            i = int(tok)
+            if 1 <= i <= len(view_list):
+                p = view_list[i - 1]
+                if p not in seen:
+                    seen.add(p)
+                    paths.append(p)
+            else:
+                unmatched.append(raw_tok.strip())
+            continue
+
+        # Name or glob token. Strip optional .mdl extension.
+        nm = tok
+        if nm.lower().endswith(".mdl"):
+            nm = nm[:-4]
+
+        if _is_glob_pattern(nm):
+            matches = _glob_match_mdls(mdls, nm)
+            if not matches:
+                unmatched.append(raw_tok.strip())
+                continue
+            for mm in matches:
+                if mm not in seen:
+                    seen.add(mm)
+                    paths.append(mm)
+            continue
+
+        match = by_lower.get(nm.lower())
+        if match is None:
+            unmatched.append(raw_tok.strip())
+            continue
+        if match not in seen:
+            seen.add(match)
+            paths.append(match)
+
+    return paths, unmatched
+
+
+def _interactive_select_mdls(mdls):
+    """Interactive picker scaled to large mdl lists (hundreds to thousands).
+
+    Supports a display filter (glob), pagination, glob-based selection and
+    explicit add/remove commands. Returns the chosen subset of `mdls` (in
+    discovery order) once the user types 'done'.
+
+    The picker operates on three concepts:
+
+      * Selection : the running set of mdl paths the user has chosen.
+                    Survives filter changes; query with 'show'; reset
+                    with 'clear'; finalised with 'done'.
+      * View      : the visible subset, controlled by the display filter
+                    ('/<glob>' to set, '/' alone to clear). Numeric
+                    indices in input refer to the current view.
+      * Page      : a windowed slice of the view rendered by 'list'.
+                    Pages auto-advance; 'first' rewinds.
+
+    Raises KeyboardInterrupt / EOFError if the user interrupts the prompt;
+    raises SystemExit on an explicit 'quit' or empty-on-entry abort.
+    """
+    PAGE = 50
+    AUTO_SHOW_MAX = 50  # auto-display the full list on entry up to this size
+
+    selected = set()         # set of mdl paths currently selected
+    filter_pat = None        # current display filter (glob), None = no filter
+    page_offset = [0]        # mutable cell so nested fn can update
+
+    def basename_of(p):
+        return os.path.splitext(os.path.basename(p))[0]
+
+    def current_view():
+        return _glob_match_mdls(mdls, filter_pat) if filter_pat else mdls
+
+    def display_page(view_list, size):
+        """Render up to `size` items of view_list starting at page_offset[0].
+        Updates page_offset[0] to the next position (wrapping to 0 when end
+        reached). Returns nothing."""
+        if not view_list:
+            sys.stdout.write("  (no items in current view)\n")
+            page_offset[0] = 0
+            return
+        if page_offset[0] >= len(view_list):
+            sys.stdout.write("  (end reached; wrapping to start)\n")
+            page_offset[0] = 0
+        start = page_offset[0]
+        end = min(start + size, len(view_list))
+        width = max(3, len(str(len(view_list))))
+        for i in range(start, end):
+            p = view_list[i]
+            marker = "[x]" if p in selected else "[ ]"
+            sys.stdout.write("  {} {:>{w}}.  {}\n".format(
+                marker, i + 1, basename_of(p), w=width))
+        if end < len(view_list):
+            sys.stdout.write("  ... {} more (type 'list' for next page, "
+                             "'first' to restart)\n".format(len(view_list) - end))
+            page_offset[0] = end
+        else:
+            page_offset[0] = 0
+            if start > 0:
+                sys.stdout.write("  (end of list)\n")
+
+    def show_help():
+        sys.stdout.write(
+            "  Commands (case-insensitive):\n"
+            "    <selection>         add to selection (numbers, ranges, names, globs, 'all')\n"
+            "                        examples:  1,3,5-7   chr0001   chr*_c01   *_c0[12]   all\n"
+            "    add <selection>     same as above (explicit form)\n"
+            "    remove <selection>  remove items from the selection\n"
+            "    /<glob>             set display filter (only show matching items)\n"
+            "                        examples:  /chr*    /*_c01    /*chr*_c01.mdl\n"
+            "                        '/' alone clears the filter\n"
+            "    list [N]            show next page of current view (default N=50)\n"
+            "    first               restart paging from the top of the current view\n"
+            "    show                list the current selection\n"
+            "    clear               remove every item from the selection\n"
+            "    done                accept current selection and continue\n"
+            "    quit                abort the run\n"
+            "    help                this message\n"
+            "  Notes:\n"
+            "    - Numeric indices refer to the current VIEW (1..N of what is displayed).\n"
+            "    - Names and globs are matched case-insensitively against ALL discovered\n"
+            "      .mdl files (not just the current view) -- so 'add chr0001' works even\n"
+            "      when a filter hides it.\n"
+            "    - Glob syntax is fnmatch: * = any chars, ? = one char, [abc] = char class.\n"
+            "    - The trailing '.mdl' on names/globs is optional.\n"
+        )
+
+    sys.stdout.write("\n--- Select .mdl files to process ---\n")
+    sys.stdout.write("{} .mdl file(s) discovered under asset/common/model/.\n".format(
+        len(mdls)))
+    show_help()
+    if len(mdls) <= AUTO_SHOW_MAX:
+        sys.stdout.write("\n")
+        display_page(mdls, len(mdls))
+    else:
+        sys.stdout.write(
+            "\n  (list is large; type 'list' to page through it, or '/<glob>' to filter)\n")
+
+    while True:
+        view = current_view()
+        if filter_pat:
+            status = "[filter '{}': {} match]".format(filter_pat, len(view))
+        else:
+            status = "[no filter]"
+        prompt = "{} selected: {}/{} > ".format(status, len(selected), len(mdls))
+        try:
+            raw = _real_input(prompt).strip()
+        except (KeyboardInterrupt, EOFError):
+            raise
+        if not raw:
+            continue
+
+        # Filter command: starts with '/'.
+        if raw.startswith("/"):
+            pat = raw[1:].strip()
+            if pat.lower().endswith(".mdl"):
+                pat = pat[:-4]
+            if not pat:
+                filter_pat = None
+                page_offset[0] = 0
+                sys.stdout.write("  Filter cleared.\n")
+                continue
+            new_view = _glob_match_mdls(mdls, pat)
+            filter_pat = pat
+            page_offset[0] = 0
+            if not new_view:
+                sys.stdout.write(
+                    "  Filter '{}' matches 0 items.  (Filter is still set; "
+                    "type '/' alone to clear it.)\n".format(pat))
+            else:
+                sys.stdout.write(
+                    "  Filter '{}' -> {} match(es). Showing first page:\n".format(
+                        pat, len(new_view)))
+                display_page(new_view, PAGE)
+            continue
+
+        parts = raw.split(None, 1)
+        verb = parts[0].lower()
+        rest = parts[1] if len(parts) > 1 else ""
+
+        if verb in ("help", "?", "h"):
+            show_help()
+            continue
+
+        if verb in ("done", "ok", "go", "accept"):
+            if not selected:
+                sys.stdout.write(
+                    "  Selection is empty. Add items first, or type 'quit' to abort.\n")
+                continue
+            return [p for p in mdls if p in selected]
+
+        if verb in ("quit", "abort", "cancel", "exit", "q"):
+            raise SystemExit("Aborted: no .mdl files selected.")
+
+        if verb == "show":
+            if not selected:
+                sys.stdout.write("  (selection is empty)\n")
+            else:
+                for p in mdls:
+                    if p in selected:
+                        sys.stdout.write("    {}\n".format(basename_of(p)))
+                sys.stdout.write("  total: {}\n".format(len(selected)))
+            continue
+
+        if verb == "clear":
+            n = len(selected)
+            selected.clear()
+            sys.stdout.write("  Cleared {} item(s) from selection.\n".format(n))
+            continue
+
+        if verb in ("first", "reset", "top"):
+            page_offset[0] = 0
+            sys.stdout.write("  Page offset reset to top of current view.\n")
+            continue
+
+        if verb == "list":
+            size = PAGE
+            if rest.strip().isdigit():
+                size = max(1, int(rest.strip()))
+            display_page(view, size)
+            continue
+
+        if verb in ("remove", "rm", "del", "drop"):
+            if not rest.strip():
+                sys.stdout.write("  remove: missing argument. Try 'help'.\n")
+                continue
+            paths, unknown = _resolve_selection_tokens(rest, mdls, view)
+            removed = 0
+            for p in paths:
+                if p in selected:
+                    selected.discard(p)
+                    removed += 1
+            if unknown:
+                sys.stdout.write("  Unmatched: {}\n".format(", ".join(unknown)))
+            sys.stdout.write("  - {} removed   (selection: {}/{})\n".format(
+                removed, len(selected), len(mdls)))
+            continue
+
+        # 'add <selection>' OR plain selection tokens (the common case).
+        if verb == "add":
+            if not rest.strip():
+                sys.stdout.write("  add: missing argument. Try 'help'.\n")
+                continue
+            sel_text = rest
+        else:
+            sel_text = raw
+
+        paths, unknown = _resolve_selection_tokens(sel_text, mdls, view)
+        if not paths and not unknown:
+            sys.stdout.write("  Nothing to do. Type 'help' for commands.\n")
+            continue
+        added = 0
+        for p in paths:
+            if p not in selected:
+                selected.add(p)
+                added += 1
+        if unknown:
+            sys.stdout.write("  Unmatched: {}\n".format(", ".join(unknown)))
+        sys.stdout.write("  + {} added   (selection: {}/{})\n".format(
+            added, len(selected), len(mdls)))
+
+
+# ---------------------------------------------------------------------------
 # CLI / main
 # ---------------------------------------------------------------------------
 def parse_args(argv=None):
@@ -2852,6 +3551,26 @@ def parse_args(argv=None):
             "Directory in / P3A out (existing project, archive output):\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --p3a --apply\n"
             "\n"
+            "Process only a chosen subset of .mdl files (CLI list or globs):\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --only chr0001,chr0002.mdl\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --only chr0001 --only chr0002\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --only \"chr*_c01\" --apply\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --only-from list.txt --apply\n"
+            "\n"
+            "Pick the subset interactively (filter, page through, glob-add, etc.):\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --select\n"
+            "\n"
+            "Game-directory mode (script lives in the game folder, 'mods/' subdir):\n"
+            "    py kuro_mdl_rename.py --game --select --apply\n"
+            "    py kuro_mdl_rename.py --game --only \"chr5113_c0?\" --apply\n"
+            "\n"
+            "Game-directory mode with explicit path:\n"
+            "    py kuro_mdl_rename.py --game \"D:\\Steam\\steamapps\\common\\TrailsXYZ\" \\\n"
+            "                          --only \"chr*_c01\" --output mymod.p3a --apply\n"
+            "\n"
+            "Subset + keep everything else verbatim (so the output is a complete project):\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --only chr0001 --keep --apply\n"
+            "\n"
             "Fully non-interactive run (CI / scripts; no prompts at all):\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --non-interactive --apply --prefix mod_\n"
             "\n"
@@ -2885,7 +3604,26 @@ def parse_args(argv=None):
                    help="Path to the source project (default: current directory). "
                         "Accepts the project root, the 'asset/' folder itself, "
                         "anything nested inside 'asset/', or a folder that contains "
-                        "exactly one nested project folder (zip-extraction layout).")
+                        "exactly one nested project folder (zip-extraction layout). "
+                        "Ignored when --game is active.")
+    p.add_argument("--game", nargs="?", const="", default=None, metavar="GAMEDIR",
+                   help="Treat the source as a Trails / ED9 game directory: a folder "
+                        "that holds many .p3a archives at its top level, each "
+                        "carrying part of the asset tree (asset/common/model/, "
+                        "asset/common/model_info/, asset/dx11/image/). The script "
+                        "auto-detects which .p3a files contribute to those folders "
+                        "by reading their tables of contents (no extraction at "
+                        "scan time), presents the discovered .mdl files for "
+                        "selection (via --only / --select / etc.), then extracts "
+                        "ONLY the selected mdls + their .mi side-cars + the images "
+                        "they actually reference into a transient scratch directory. "
+                        "From there the existing renaming pipeline runs as usual "
+                        "and the result defaults to a single .p3a archive output. "
+                        "If --game is given without a path, the directory containing "
+                        "this script is used (so you can drop the script into the "
+                        "game folder and run 'py kuro_mdl_rename.py --game --select'); "
+                        "if a path follows, that path is used. The positional "
+                        "'project' argument is ignored when --game is active.")
     p.add_argument("--prefix", default=None,
                    help="Prefix added to renamed mdl files (default: 'mod_'). "
                         "Ignored under --rename. Empty is allowed.")
@@ -2920,6 +3658,33 @@ def parse_args(argv=None):
                         "editing the pre-filled default; image renames are still derived "
                         "from each chosen new basename, so per-mdl image uniqueness holds "
                         "even when several mdls share a source texture.")
+    p.add_argument("--only", action="append", default=None, metavar="NAMES",
+                   help="Process ONLY the listed .mdl files. NAMES is a comma-separated "
+                        "list of mdl basenames or glob patterns (with or without the "
+                        "'.mdl' extension; matching is case-insensitive). Glob syntax is "
+                        "fnmatch: '*' matches any chars, '?' matches one char, '[abc]' is "
+                        "a character class. The flag may be specified multiple times (all "
+                        "values are unioned). On Windows cmd, quote patterns that contain "
+                        "spaces; the shell does not glob-expand on its own. Examples: "
+                        "--only chr0001,chr0002    --only \"chr*_c01\"    --only \"*_c0[12]\". "
+                        "Models not in the list are excluded from the renaming pipeline; "
+                        "combined with --keep they are copied verbatim into the output "
+                        "(along with their .mi side-car and any images they need under "
+                        "the original names). Mutually exclusive with --select.")
+    p.add_argument("--only-from", default=None, metavar="FILE",
+                   help="Read the list of .mdl selection tokens from FILE (one token per "
+                        "line; '#' starts a line comment; blank lines are ignored). Each "
+                        "line may be a literal mdl basename OR a glob pattern. Combined "
+                        "with --only when both are given. Mutually exclusive with --select.")
+    p.add_argument("--select", action="store_true",
+                   help="Interactively pick which .mdl files to process. The picker is "
+                        "scaled for large projects (hundreds to thousands of mdls): "
+                        "set a display filter with '/<glob>' to narrow the view, page "
+                        "through it with 'list', then add to the selection by index, "
+                        "range, name or glob ('chr*_c01', '1-50', 'all', etc.). Type "
+                        "'help' inside the picker for the full command list and 'done' "
+                        "to confirm. Mutually exclusive with --only / --only-from and "
+                        "with --non-interactive.")
     p.add_argument("--non-interactive", "--batch", dest="non_interactive",
                    action="store_true",
                    help="Disable ALL interactive prompts. Any value not present on the "
@@ -3088,9 +3853,107 @@ def main(argv=None):
         )
         return 2
 
+    if args.select and args.non_interactive:
+        sys.stderr.write(
+            "ERROR: --select and --non-interactive are mutually exclusive "
+            "(--select is itself an interactive feature).\n"
+        )
+        return 2
+
+    if args.select and (args.only or args.only_from):
+        sys.stderr.write(
+            "ERROR: --select cannot be combined with --only / --only-from. "
+            "Use one or the other.\n"
+        )
+        return 2
+
+    # ---- Step 0a: GAME-DIRECTORY mode? Build a multi-archive index. ------
+    # When --game is given (with or without an explicit path), we treat the
+    # source as a Trails / ED9 game folder containing many .p3a archives at
+    # its top level and build a virtual index spanning all of them. The
+    # rest of the resolution code (P3A auto-detect, multi-source picker,
+    # path resolution) is bypassed entirely in this branch -- the index IS
+    # the source.
+    game_idx = None
+    src_p3a_path = None      # original .p3a, if input was an archive (non-game mode)
+    src_extract_dir = None   # transient working dir (game scratch OR p3a extract)
+
+    if args.game is not None:
+        if args.game == "":
+            game_dir = _script_dir()
+            game_dir_origin = "script directory"
+        else:
+            game_dir = os.path.abspath(args.game)
+            game_dir_origin = "command line"
+        if not os.path.isdir(game_dir):
+            sys.stderr.write(
+                "ERROR: --game directory does not exist or is not a directory: {}\n".format(
+                    game_dir))
+            return 1
+        sys.stdout.write("Scanning game directory ({}): {}\n".format(
+            game_dir_origin, game_dir))
+
+        def _scan_progress(i, total, p3a_path):
+            sys.stdout.write("  [{:>2}/{:>2}] reading TOC: {}\n".format(
+                i, total, os.path.basename(p3a_path)))
+            sys.stdout.flush()
+
+        try:
+            game_idx = P3AGameDirIndex(game_dir, progress=_scan_progress)
+        except Exception as e:
+            sys.stderr.write("ERROR: failed to scan game directory: {}\n".format(e))
+            return 1
+
+        if not game_idx.contributing_p3a:
+            sys.stderr.write(
+                "ERROR: no .p3a archive in {} contributes asset/common/model/, "
+                "asset/common/model_info/, or asset/dx11/image/ entries.\n"
+                "Is this really a Trails / ED9 game directory? "
+                "(Mod archives in subdirectories like 'mods/' are NOT scanned -- "
+                "only top-level .p3a files.)\n".format(game_dir))
+            return 1
+
+        n_mdl = len(game_idx.list_mdls())
+        n_mi = len(game_idx.list_mi_index())
+        n_img = len(game_idx.list_image_index())
+        sys.stdout.write(
+            "  {} contributing archive(s); virtual index: {} mdl, {} mi, {} image.\n".format(
+                len(game_idx.contributing_p3a), n_mdl, n_mi, n_img))
+
+        if n_mdl == 0:
+            sys.stderr.write(
+                "ERROR: game index built but contains 0 .mdl files. Nothing to do.\n")
+            return 1
+
+        # In game-dir mode the output defaults to a P3A archive (the user's
+        # workflow is "produce a single mod .p3a"). The user may still flip
+        # this in the interactive prompt or by leaving --p3a unset and
+        # passing --output that ends in something else, but the SENSIBLE
+        # default is on. We only flip it when not explicitly set.
+        if args.p3a is None and args.non_interactive:
+            args.p3a = True
+        elif args.p3a is None:
+            # Interactive mode: pre-tick the P3A choice in the prompt by
+            # treating it as "currently True" (the prompt's default-yes).
+            args.p3a = True
+
+        # Set up a transient scratch directory; _run_main fills it lazily.
+        # main()'s finally block cleans it up on every exit path.
+        src_extract_dir = os.path.join(
+            _script_dir(), "_kuro_mdl_rename_game_workdir")
+        if os.path.exists(src_extract_dir):
+            shutil.rmtree(src_extract_dir, ignore_errors=True)
+        os.makedirs(src_extract_dir, exist_ok=True)
+        # Make resolve_project_root happy by pre-creating the asset/ dir.
+        os.makedirs(os.path.join(src_extract_dir, "asset", "common", "model"),
+                    exist_ok=True)
+        os.makedirs(os.path.join(src_extract_dir, "asset", "common", "model_info"),
+                    exist_ok=True)
+        os.makedirs(os.path.join(src_extract_dir, "asset", "dx11", "image"),
+                    exist_ok=True)
+        args.project = src_extract_dir
+
     # ---- Step 0: P3A INPUT? Auto-detect and extract on the fly. -----------
-    src_p3a_path = None  # original .p3a, if input was an archive
-    src_extract_dir = None  # transient working dir holding the extracted files
     user_path_abs = os.path.abspath(args.project)
 
     # Build a candidate list for the user-supplied directory:
@@ -3194,23 +4057,125 @@ def main(argv=None):
         args.project = src_extract_dir
 
     try:
-        return _run_main(args, src_p3a_path, src_extract_dir)
+        return _run_main(args, src_p3a_path, src_extract_dir, game_idx)
     except FileNotFoundError as e:
         # User-friendly error path -- no Python traceback for problems we
         # can describe in plain English (e.g. nothing to process).
         sys.stderr.write("ERROR: {}\n".format(e))
         return 1
     finally:
-        # Always clean up the transient P3A extraction directory.
+        # Always clean up the transient P3A extraction directory (or
+        # game-dir scratch directory).
         if src_extract_dir and os.path.exists(src_extract_dir):
             shutil.rmtree(src_extract_dir, ignore_errors=True)
 
 
-def _run_main(args, src_p3a_path, src_extract_dir):
+def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
     interactive = not args.non_interactive
-    src_project, resolve_note = resolve_project_root(args.project)
 
-    # ---- Step 1: prefix/suffix (skipped under --rename) -------------------
+    # ---- Step 1: discover mdls (silent, before any interactive prompts) ---
+    # We do this before the prefix/suffix prompts so that the --select picker
+    # (which needs to enumerate the discovered mdls) can run first and the
+    # rest of the interactive flow only sees the filtered subset.
+    if game_idx is not None:
+        # Game-dir mode: the "project root" is the empty scratch directory.
+        # Discovery is virtual -- all_mdls are P3A entry paths, not files
+        # on disk. Real on-disk paths appear after materialisation below.
+        src_project = src_extract_dir
+        resolve_note = ""
+        all_mdls = list(game_idx.list_mdls())
+    else:
+        src_project, resolve_note = resolve_project_root(args.project)
+        all_mdls = find_mdls(src_project)
+
+    if not all_mdls:
+        if game_idx is not None:
+            sys.stderr.write(
+                "ERROR: game index contains 0 .mdl files. Nothing to do.\n")
+        else:
+            sys.stderr.write(
+                "ERROR: No .mdl files found under {}/asset/common/model/\n".format(
+                    src_project))
+        return 1
+
+    # ---- Step 1a: optional .mdl filtering (--only / --only-from / --select) -
+    # When no filter flag is set this is a no-op and the run processes every
+    # discovered .mdl, identical to the pre-existing default behaviour. The
+    # filtering helpers operate purely on os.path.basename(), so they work
+    # equally well on real on-disk paths and on virtual P3A entry paths.
+    mdls = list(all_mdls)
+    if args.select:
+        try:
+            mdls = _interactive_select_mdls(all_mdls)
+        except (KeyboardInterrupt, EOFError):
+            sys.stderr.write("\nCancelled.\n")
+            return 130
+        except SystemExit as e:
+            sys.stderr.write("{}\n".format(e))
+            return 1
+    elif args.only or args.only_from:
+        requested = list(_split_only_args(args.only))
+        if args.only_from:
+            try:
+                requested.extend(_read_only_from_file(args.only_from))
+            except OSError as e:
+                sys.stderr.write(
+                    "ERROR: cannot read --only-from file {!r}: {}\n".format(
+                        args.only_from, e))
+                return 1
+        if not requested:
+            sys.stderr.write(
+                "ERROR: --only / --only-from produced an empty list of names.\n")
+            return 1
+        selected, unknown = _filter_mdls_by_names(all_mdls, requested)
+        if unknown:
+            sys.stderr.write(
+                "ERROR: the following requested .mdl name(s) were not found in the "
+                "project:\n")
+            for u in unknown:
+                sys.stderr.write("    {}\n".format(u))
+            sys.stderr.write("Available .mdl files under asset/common/model/:\n")
+            for p in all_mdls:
+                sys.stderr.write("    {}\n".format(
+                    os.path.splitext(os.path.basename(p))[0]))
+            return 1
+        if not selected:
+            sys.stderr.write("ERROR: --only matched no .mdl files in the project.\n")
+            return 1
+        mdls = selected
+    filtered_to_subset = (len(mdls) != len(all_mdls))
+    total_discovered = len(all_mdls)
+
+    # ---- Step 1b: GAME-DIR MATERIALIZATION (selected mdls + .mi only) -----
+    # In game-dir mode the discovered list above is purely virtual. Now
+    # that the user has chosen a subset, extract just those .mdl files
+    # (and their matching .mi side-cars) from the source archives into
+    # the scratch directory. Image references are resolved AFTER this --
+    # build_plan() reads the materialised mdls to find them, and a second
+    # extraction pass below pulls the matched images.
+    if game_idx is not None:
+        sys.stdout.write(
+            "\nMaterializing {} selected .mdl file(s) and matching .mi side-cars "
+            "into scratch...\n".format(len(mdls)))
+        try:
+            mdl_n, mi_n, missing_mi = _materialize_game_subset(
+                game_idx, mdls, src_project)
+        except Exception as e:
+            sys.stderr.write(
+                "ERROR: failed to materialise selected files: {}\n".format(e))
+            return 1
+        sys.stdout.write(
+            "  extracted {} mdl(s) + {} mi side-car(s){}\n".format(
+                mdl_n, mi_n,
+                " ({} mdl(s) without a .mi side-car: ok)".format(len(missing_mi))
+                if missing_mi else ""))
+        if mdl_n == 0:
+            sys.stderr.write("ERROR: no selected mdl could be extracted.\n")
+            return 1
+        # Replace virtual paths with real on-disk paths going forward.
+        mdls = find_mdls(src_project)
+
+    # ---- Step 2: prefix/suffix (skipped under --rename) -------------------
     if args.rename:
         # Names will be picked per-mdl; build_plan gets empty placeholders
         # which it overwrites once the user has chosen each new basename.
@@ -3233,20 +4198,38 @@ def _run_main(args, src_p3a_path, src_extract_dir):
                 args.suffix = ""
         _validate_prefix_suffix(args.prefix, args.suffix)
 
-    # ---- Step 2: silent discovery (no logging yet) ------------------------
-    mdls = find_mdls(src_project)
-    if not mdls:
-        sys.stderr.write(
-            "ERROR: No .mdl files found under {}/asset/common/model/\n".format(src_project)
-        )
-        return 1
-    src_image_dir, image_index = index_image_dir(src_project)
+    # ---- Step 3: silent discovery (image dir + plans) ---------------------
+    if game_idx is not None:
+        # Image lookup goes against the game-wide virtual index (so build_plan
+        # can match references that live in asset_image.p3a etc.). The actual
+        # image files are extracted into src_image_dir AFTER build_plan tells
+        # us which ones are needed -- see the materialisation pass below.
+        src_image_dir = os.path.join(src_project, "asset", "dx11", "image")
+        os.makedirs(src_image_dir, exist_ok=True)
+        image_index = game_idx.list_image_index()
+    else:
+        src_image_dir, image_index = index_image_dir(src_project)
     plans = build_plan(src_project, mdls, image_index, args.prefix, args.suffix)
     if not plans:
         sys.stderr.write("ERROR: No usable plans were produced.\n")
         return 1
 
-    # ---- Step 3: per-mdl interactive rename (only under --rename) ---------
+    # ---- Step 3a: GAME-DIR IMAGE MATERIALIZATION --------------------------
+    # build_plan() has now identified, per mdl, which image references are
+    # present in the game index. Extract just those images into the scratch
+    # so apply_plan() can read them like a normal project.
+    if game_idx is not None:
+        try:
+            n_img = _materialize_plan_images(game_idx, plans, src_image_dir)
+        except Exception as e:
+            sys.stderr.write(
+                "ERROR: failed to materialise referenced images: {}\n".format(e))
+            return 1
+        sys.stdout.write(
+            "Materialized {} unique image(s) referenced by selected mdls.\n".format(
+                n_img))
+
+    # ---- Step 4: per-mdl interactive rename (only under --rename) ---------
     if args.rename:
         try:
             _interactive_rename_each(plans)
@@ -3254,10 +4237,14 @@ def _run_main(args, src_p3a_path, src_extract_dir):
             sys.stderr.write("\nCancelled.\n")
             return 130
 
-    # ---- Step 4: output destination + apply confirmation -----------------
+    # ---- Step 5: output destination + apply confirmation -----------------
     # Defaults for the output path differ depending on whether the user is
-    # producing a directory or a P3A archive.
+    # producing a directory or a P3A archive. In game-dir mode the source
+    # is the scratch directory which has an unhelpful internal name -- so
+    # we anchor the default on the GAME directory itself instead.
     def _default_p3a_output(src_root, src_p3a):
+        if game_idx is not None:
+            return os.path.join(game_idx.game_dir, "kuro_mdl_rename_output.p3a")
         # If source was a P3A, place output next to it. Else next to source dir.
         if src_p3a:
             parent = os.path.dirname(os.path.abspath(src_p3a))
@@ -3267,9 +4254,14 @@ def _run_main(args, src_p3a_path, src_extract_dir):
         base = os.path.basename(os.path.abspath(src_root).rstrip(os.sep))
         return os.path.join(parent, base + "_modded.p3a")
 
+    def _default_output_dir_local(default_src):
+        if game_idx is not None:
+            return os.path.join(game_idx.game_dir, "kuro_mdl_rename_output")
+        return _default_output_dir(default_src)
+
     if interactive:
         try:
-            default_dir_out = args.output or _default_output_dir(src_p3a_path or src_project)
+            default_dir_out = args.output or _default_output_dir_local(src_p3a_path or src_project)
             default_p3a_out = (args.output if args.output and args.output.lower().endswith(".p3a")
                                else _default_p3a_output(src_project, src_p3a_path))
             args.output, args.apply, args.keep, args.p3a = _interactive_collect_output_apply(
@@ -3288,7 +4280,7 @@ def _run_main(args, src_p3a_path, src_extract_dir):
             args.p3a = False
         if args.output is None:
             args.output = (_default_p3a_output(src_project, src_p3a_path)
-                           if args.p3a else _default_output_dir(src_p3a_path or src_project))
+                           if args.p3a else _default_output_dir_local(src_p3a_path or src_project))
 
     # P3A compression / version defaults (used only when args.p3a is True).
     if args.p3a_compression is None:
@@ -3308,7 +4300,7 @@ def _run_main(args, src_p3a_path, src_extract_dir):
         final_p3a_path = None
         out_project = os.path.abspath(args.output)
 
-    # ---- Step 5: set up logging (log file lives next to this script) ------
+    # ---- Step 6: set up logging (log file lives next to this script) ------
     log_path = args.log or os.path.join(_script_dir(), "kuro_mdl_rename.log")
     setup_logging(log_path, verbose=args.verbose, no_color=args.no_color)
     if resolve_note:
@@ -3318,7 +4310,12 @@ def _run_main(args, src_p3a_path, src_extract_dir):
     LOG.info("Mode               : %s%s",
              _green("APPLY") if args.apply else _cyan("DRY-RUN"),
              _dim("  (--non-interactive)") if not interactive else "")
-    if src_p3a_path:
+    if game_idx is not None:
+        LOG.info("Source             : %s %s",
+                 _cyan(game_idx.game_dir),
+                 _dim("(game directory; {} contributing .p3a, lazy materialised)".format(
+                     len(game_idx.contributing_p3a))))
+    elif src_p3a_path:
         LOG.info("Source             : %s %s",
                  _cyan(src_p3a_path), _dim("(P3A archive, extracted to scratch)"))
     else:
@@ -3338,10 +4335,31 @@ def _run_main(args, src_p3a_path, src_extract_dir):
                  _green(repr(args.prefix)), _green(repr(args.suffix)))
     LOG.info("Keep unused files  : %s",
              _green("yes (--keep)") if args.keep else _dim("no"))
+    if filtered_to_subset:
+        # Mention how the subset was chosen so the log makes the run
+        # reproducible without having to consult the CLI line.
+        if args.select:
+            sel_source = "--select"
+        elif args.only and args.only_from:
+            sel_source = "--only + --only-from"
+        elif args.only_from:
+            sel_source = "--only-from"
+        else:
+            sel_source = "--only"
+        LOG.info("MDL selection      : %s %s",
+                 _bold("subset"),
+                 _dim("({})".format(sel_source)))
+    else:
+        LOG.info("MDL selection      : %s", _dim("all .mdl files (no filter)"))
     LOG.info("Log file           : %s", _dim(log_path))
-    LOG.info("Discovered %s .mdl file(s).", _bold(str(len(mdls))))
+    if filtered_to_subset:
+        LOG.info("Discovered %s .mdl file(s); selected %s for processing.",
+                 _bold(str(total_discovered)), _bold(str(len(mdls))))
+    else:
+        LOG.info("Discovered %s .mdl file(s).", _bold(str(len(mdls))))
     LOG.info("Discovered %s image file(s) in %s.",
-             _bold(str(len(image_index))), _dim(src_image_dir))
+             _bold(str(len(image_index))),
+             _dim("game index" if game_idx is not None else src_image_dir))
 
     # Sanity: refuse to write into the source directory. (For P3A input the
     # extracted source lives in a scratch dir, so this only fires for
@@ -3351,12 +4369,46 @@ def _run_main(args, src_p3a_path, src_extract_dir):
         LOG.error("Output path is the same as the source path. Aborting to protect source data.")
         return 2
 
+    # When --keep is on AND the run was filtered to a subset of the
+    # discovered .mdl files, the SKIPPED .mdl files (and their .mi side-cars
+    # and image references) get copied verbatim by the --keep walk. Their
+    # references point to the ORIGINAL image filenames -- so we must NOT
+    # mark those originals as "consumed" by the renaming pipeline, otherwise
+    # they would be omitted from the output and the kept-verbatim mdls would
+    # reference missing files. Build the protected-image set here.
+    #
+    # In GAME-DIR mode this whole concern is moot: the scratch project only
+    # contains the SELECTED mdls (no skipped ones materialised), so the
+    # --keep walk has nothing extra to copy and we don't need to protect
+    # any image. Skip the bookkeeping entirely in that case.
+    protected_images = set()
+    if game_idx is None and args.keep and filtered_to_subset:
+        selected_set = {_normcase_abs(p) for p in mdls}
+        skipped_mdls = [p for p in all_mdls if _normcase_abs(p) not in selected_set]
+        for sm in skipped_mdls:
+            try:
+                refs = _mdl_image_list(sm)
+            except Exception as e:
+                LOG.debug("[keep] could not parse skipped mdl %s for image refs: %s",
+                          sm, e)
+                refs = None
+            if not refs:
+                continue
+            for ref in refs:
+                actual = image_index.get(ref.lower())
+                if actual:
+                    protected_images.add(actual)
+        if protected_images:
+            LOG.debug("[keep] %d image(s) protected from consumption "
+                      "because skipped mdls reference them", len(protected_images))
+
     # Compute the list of files --keep would copy. We always compute it when
     # --keep is set so it's available both for the dry-run report and for
     # the apply step. We exclude the running script and the log file from
     # the walk; these may live INSIDE the project (the user often runs the
     # script from inside the project folder) and shouldn't be copied.
-    consumed_abs = build_consumed_set(plans, src_image_dir)
+    consumed_abs = build_consumed_set(plans, src_image_dir,
+                                       protected_image_filenames=protected_images)
     extra_skip = [log_path]
     try:
         extra_skip.append(os.path.abspath(__file__))
@@ -3366,7 +4418,7 @@ def _run_main(args, src_p3a_path, src_extract_dir):
     if args.keep:
         kept_files = enumerate_kept_files(src_project, consumed_abs, extra_skip)
 
-    # ---- Step 6: report and apply -----------------------------------------
+    # ---- Step 7: report and apply -----------------------------------------
     report_plans(plans, src_image_dir, image_index, out_project,
                  dry_run=not args.apply, keep=args.keep, kept_files=kept_files)
 
