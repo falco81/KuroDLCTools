@@ -1,0 +1,26 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"desc": "toffset",
+			"val1": "uint",
+			"val2": "uint",
+			"val3": "uint",
+			"val4": "uint",
+			"asset": "toffset",
+			"val5": "uint",
+			"val6": "uint",
+			"val7": "uint",
+			"val8": "uint",
+			"flag": "ulong",
+			"pad": "ulong",
+			"extra": "ulong"
+		},
+		"note": "Manually verified \u2014 types confirmed by per-offset analysis on real TBL data. Confirmed in EXE RTTI/strings of: Ys X.",
+		"exe_evidence": [
+			"Ys X"
+		]
+	}
+}

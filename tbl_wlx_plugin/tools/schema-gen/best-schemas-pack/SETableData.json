@@ -1,0 +1,14 @@
+{
+	"GENERATED": {
+		"game": "Kuro",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"category": "uint",
+			"volume": "float",
+			"value": "uint",
+			"pitch": "float"
+		},
+		"note": "Manually verified \u2014 types confirmed by per-offset analysis on real TBL data. No direct EXE evidence; section detected only in TBL files."
+	}
+}
