@@ -19,6 +19,7 @@ This section provides comprehensive, in-depth documentation for advanced users, 
   - [find_unique_item_id_for_t_item_category.py](#find_unique_item_id_for_t_item_categorypy)
   - [find_unique_item_id_from_kurodlc.py](#find_unique_item_id_from_kurodlcpy)
   - [fix_subcategory.py](#fix_subcategorypy)
+  - [kuro_mdl_rename.py](#kuro_mdl_renamepy)
 - [3D Model Viewer Scripts](#3d-model-viewer-scripts)
   - [viewer.py](#viewerpy)
   - [viewer_mdl.py](#viewer_mdlpy)
@@ -44,14 +45,13 @@ This section provides comprehensive, in-depth documentation for advanced users, 
 
 ### resolve_id_conflicts_in_kurodlc.py
 
-**Version:** v2.7.1  
 **Purpose:** Detect and resolve ID conflicts between DLC mods and game data
 
 #### How It Works
 
 The script operates in two phases. In the **detection phase**, it loads a game item database (from any supported source) and builds a dictionary mapping every used item ID to its name. It then scans all `.kurodlc.json` files in the current directory, extracting item IDs from four sections: `CostumeParam` (field `item_id`), `ItemTableData` (field `id`), `DLCTableData` (nested `items` arrays), and `ShopItem` (field `item_id`). Each extracted DLC ID is checked against the game database — if the ID exists in game data, it is flagged as `[BAD]` (conflict), otherwise `[OK]` (safe).
 
-In the **repair phase** (mode `repair`), the script uses a **smart ID assignment algorithm** (v2.7) to find replacement IDs for every conflict. The algorithm works within range 1–5000 (safe game limit). It first attempts to find a **continuous block** of free IDs starting from the midpoint (2500) and searching outward in both directions. If fragmentation prevents a continuous block, it falls back to **scattered search**, collecting individual free IDs using the same middle-out strategy. Once replacement IDs are determined, the script can either preview the mapping, export it to a JSON file for manual editing, or apply it directly with `--apply`.
+In the **repair phase** (mode `repair`), the script uses a **smart ID assignment algorithm** to find replacement IDs for every conflict. The algorithm works within range 1–5000 (safe game limit). It first attempts to find a **continuous block** of free IDs starting from the midpoint (2500) and searching outward in both directions. If fragmentation prevents a continuous block, it falls back to **scattered search**, collecting individual free IDs using the same middle-out strategy. Once replacement IDs are determined, the script can either preview the mapping, export it to a JSON file for manual editing, or apply it directly with `--apply`.
 
 When applying changes, the script performs ID replacement across **all four sections simultaneously** — it updates `item_id` in CostumeParam, `id` in ItemTableData, values in `DLCTableData.items` arrays, and `item_id` in ShopItem. This ensures internal consistency within each `.kurodlc.json` file. Timestamped backups are always created before modification.
 
@@ -115,7 +115,7 @@ Game Database Sources (for conflict detection):
 DLC Files to Check:
   - All .kurodlc.json files in current directory
 
-ALGORITHM (v2.7):
+ALGORITHM:
   Smart ID assignment in range 1-5000:
   1. Starts from middle (2500) for better distribution
   2. Tries continuous blocks first (e.g., 4000-4049)
@@ -241,7 +241,6 @@ The smart algorithm will:
 
 ### shops_find_unique_item_id_from_kurodlc.py
 
-**Version:** v2.2  
 **Purpose:** Extract item IDs from DLC files and generate template configurations
 
 #### How It Works
@@ -250,9 +249,9 @@ The script reads a `.kurodlc.json` file and extracts item IDs from one or more s
 
 **Extraction logic** works by parsing JSON and iterating through requested sections. When mode is `all` (default), it collects IDs from every section and deduplicates them. Combined modes like `costume+item` merge results from multiple sections. The final output to stdout is a Python-style list of sorted unique IDs, while stderr receives a summary showing per-section counts.
 
-**Validation** (v2.2) recognizes two file types: full DLC files (containing CostumeParam/ItemTableData/DLCTableData) and shop-only files (containing only ShopItem). The `is_valid_kurodlc_structure()` function checks for the presence of at least one recognized section. This allows files like `Daybreak2CostumeShop.kurodlc.json` that only define shop assignments to be processed.
+**Validation** recognizes two file types: full DLC files (containing CostumeParam/ItemTableData/DLCTableData) and shop-only files (containing only ShopItem). The `is_valid_kurodlc_structure()` function checks for the presence of at least one recognized section. This allows files like `Daybreak2CostumeShop.kurodlc.json` that only define shop assignments to be processed.
 
-**Template generation** (v2.0+) is an advanced feature that creates a ready-to-use config file for `shops_create.py`. When invoked with `--generate-template`, the script first extracts item IDs from the specified source section (costume, item, dlc, or all), then determines shop IDs either from the existing ShopItem section (auto-detect), from `--shop-ids`, or from `--default-shop-ids`. It also extracts the existing template structure from the first ShopItem entry if available, falling back to a hardcoded default. The generated JSON file contains `item_ids`, `shop_ids`, `template`, and a `_comment` section with usage instructions.
+**Template generation** is an advanced feature that creates a ready-to-use config file for `shops_create.py`. When invoked with `--generate-template`, the script first extracts item IDs from the specified source section (costume, item, dlc, or all), then determines shop IDs either from the existing ShopItem section (auto-detect), from `--shop-ids`, or from `--default-shop-ids`. It also extracts the existing template structure from the first ShopItem entry if available, falling back to a hardcoded default. The generated JSON file contains `item_ids`, `shop_ids`, `template`, and a `_comment` section with usage instructions.
 
 #### All Parameters
 
@@ -300,7 +299,7 @@ python shops_find_unique_item_id_from_kurodlc.py my_costume_mod.kurodlc.json
 # stdout: [3596, 3597, 3598]
 ```
 
-**Shop-only File (v2.2):**
+**Shop-only File:**
 ```bash
 python shops_find_unique_item_id_from_kurodlc.py Daybreak2CostumeShop.kurodlc.json shop
 # Extracts item_ids from ShopItem section only — no CostumeParam required
@@ -340,7 +339,6 @@ python shops_find_unique_item_id_from_kurodlc.py my_mod.kurodlc.json --generate-
 
 ### shops_create.py
 
-**Version:** v2.0  
 **Purpose:** Generate bulk shop assignments from template configurations
 
 #### How It Works
@@ -414,7 +412,6 @@ python shops_create.py template_my_mod.kurodlc.json
 
 ### shops_replace_in_kurodlc.py
 
-**Version:** v1.1  
 **Purpose:** Batch replace shop IDs in .kurodlc.json files by rebuilding the ShopItem section
 
 #### How It Works
@@ -599,7 +596,6 @@ Enter new shop IDs (comma-separated, e.g. 21,22,248,258):
 
 ### kurodlc_add_mdl.py
 
-**Version:** v2.2  
 **Purpose:** Scan for .mdl files and create complete DLC entries, including new .kurodlc.json files from scratch
 
 #### How It Works
@@ -616,9 +612,9 @@ This script creates DLC entries for new costume MDL files in a `.kurodlc.json` f
 
 **Step 5: Smart Item ID Assignment.** The script builds a complete set of used IDs by calling `collect_all_used_ids()`, which merges IDs from three sources: the game item database (t_item), all `.kurodlc.json` files in the directory (scanning CostumeParam, ItemTableData, DLCTableData, and ShopItem sections), and internal DLC IDs. It then calls `find_available_ids_in_range()` (the same algorithm as `resolve_id_conflicts_in_kurodlc.py`) to find free IDs. The algorithm tries a continuous block from the middle first, then falls back to scattered search.
 
-**Step 6: DLC ID Assignment (v2.2).** When the target file has no existing `DLCTableData` records (including new files created from scratch), the script needs to assign a DLC ID (range 1–350). It loads t_dlc data via `load_t_dlc_data()` from `t_dlc.json`, `t_dlc.tbl`, or P3A archives. The `collect_used_dlc_ids()` function merges DLC IDs from game data and all `.kurodlc.json` files in the directory. `find_available_dlc_id()` finds the first unused ID starting from the end of the used range. In interactive mode, the user can search the DLC database with `?` (using `search_tdlc_interactive()`) and confirm or override the suggested ID. With `--no-interactive`, the suggested ID is used automatically.
+**Step 6: DLC ID Assignment.** When the target file has no existing `DLCTableData` records (including new files created from scratch), the script needs to assign a DLC ID (range 1–350). It loads t_dlc data via `load_t_dlc_data()` from `t_dlc.json`, `t_dlc.tbl`, or P3A archives. The `collect_used_dlc_ids()` function merges DLC IDs from game data and all `.kurodlc.json` files in the directory. `find_available_dlc_id()` finds the first unused ID starting from the end of the used range. In interactive mode, the user can search the DLC database with `?` (using `search_tdlc_interactive()`) and confirm or override the suggested ID. With `--no-interactive`, the suggested ID is used automatically.
 
-**Step 7: Shop ID Selection (v2.2).** If `--shop-ids` is not specified, the script determines shop IDs via `prompt_shop_ids_interactive()`. This function loads t_shop data from available sources (`t_shop.json`, `t_shop.tbl`, P3A archives) and provides interactive search functionality. The user can type `?` to enter search mode (`search_tshop_interactive()`), which supports `id:N` for exact ID lookup, `name:TEXT` for name search, or plain text for auto-detect. Entered shop IDs are validated against the t_shop database with shop name display. For existing files, shop IDs are auto-detected from the current ShopItem section. For new files with no existing entries, default shop IDs of `[21, 22, 248, 258]` are offered.
+**Step 7: Shop ID Selection.** If `--shop-ids` is not specified, the script determines shop IDs via `prompt_shop_ids_interactive()`. This function loads t_shop data from available sources (`t_shop.json`, `t_shop.tbl`, P3A archives) and provides interactive search functionality. The user can type `?` to enter search mode (`search_tshop_interactive()`), which supports `id:N` for exact ID lookup, `name:TEXT` for name search, or plain text for auto-detect. Entered shop IDs are validated against the t_shop database with shop name display. For existing files, shop IDs are auto-detected from the current ShopItem section. For new files with no existing entries, default shop IDs of `[21, 22, 248, 258]` are offered.
 
 **Step 8: Entry Generation.** For each resolved MDL, the script generates four types of entries:
 
@@ -662,7 +658,7 @@ OPTIONAL FILES:
   t_shop source       One of: t_shop.json, t_shop.tbl, P3A archives
                       Used for shop ID validation and interactive search.
 
-DLC ID ASSIGNMENT (v2.2):
+DLC ID ASSIGNMENT:
   When no DLCTableData records exist (new file or empty DLC section):
   - Scans t_dlc data + existing .kurodlc.json files for used DLC IDs
   - Assignable range: 1-349
@@ -670,7 +666,7 @@ DLC ID ASSIGNMENT (v2.2):
   - Interactive mode: ? = search DLC database by name/ID
   - Non-interactive mode: uses suggested ID automatically
 
-ITEM ID ASSIGNMENT (v2.0):
+ITEM ID ASSIGNMENT:
   Smart algorithm in range 1-5000 (configurable with --min-id/--max-id):
   1. Collects used IDs from t_item + all .kurodlc.json files
   2. Tries continuous block from midpoint (2500), searching outward
@@ -729,7 +725,7 @@ Summary of changes:
 [DRY RUN] No files modified. Use --apply to write changes.
 ```
 
-**Create New DLC from Scratch (v2.2):**
+**Create New DLC from Scratch:**
 ```bash
 python kurodlc_add_mdl.py NewMod.kurodlc.json --apply
 ```
@@ -803,7 +799,7 @@ Enter char_restrict value, or press Enter to skip, 'q' to abort:
   custom_model_xyz character name = Van
 ```
 
-**Interactive Shop Search (v2.2):**
+**Interactive Shop Search:**
 ```
   No existing shop_ids found in file.
   ? = search shops
@@ -1205,6 +1201,265 @@ Total: 4 entries in 2 file(s)
 
 ---
 
+### kuro_mdl_rename.py
+
+**Purpose:** Produce renamed mod `.p3a` archives for Kuro no Kiseki / ED9 games. The renaming is per-mdl and isolates each model's texture set into a private namespace so that two mods which touch overlapping vanilla assets never overwrite each other.
+
+#### How It Works
+
+The script accepts three different kinds of input and converges them onto a common per-mdl renaming pipeline. The richest source mode is `--game [PATH]` — a Trails / ED9 install directory. In that mode the script does **not** extract the entire game; it walks every `.p3a` archive at the top level of the directory and reads only their **table of contents** through `P3AGameDirIndex`. Each TOC tells the script which entries an archive contributes to `asset/common/model/`, `asset/common/model_info/`, and `asset/dx11/image/`. The union of those entries is the set of `.mdl`, `.mi`, and image files the renaming pipeline can later draw on. No file bodies are decompressed during scan, so even installations with tens of thousands of entries open in seconds.
+
+After the scan, the script presents the discovered `.mdl` files for selection. Selection is one of three forms: `--only NAMES` / `--only-from FILE` (CLI lists, comma-separated names or globs, with `fnmatch` syntax — `*`, `?`, `[abc]` — and case-insensitive matching), `--select` (interactive picker that scales to thousands of items: display filter `/<glob>`, paging `list [N]`, glob-add, `add` / `remove` / `show` / `clear` / `done` / `quit` / `help`), or — by default — every discovered mdl. Once the subset is fixed, the script materializes ONLY those mdls plus their `.mi` side-cars into a transient scratch directory under the script's working area. Image references inside each mdl's material data are then resolved against the same game index, and only the actually referenced images are extracted from the appropriate `.p3a` archives. The game directory itself is never written to.
+
+For project-directory and single-`.p3a` source modes the same selection logic applies, but the input data is already on disk (project layout) or unpacks fully to a working directory (single archive).
+
+The renaming pipeline runs once per selected mdl. It computes the mdl's new basename (`prefix + original + suffix`, or a name typed under `--rename`, or the original name kept if both prefix and suffix are empty), then loads the mdl's binary mesh data and material data through the embedded import logic (the same logic used by `kuro_mdl_export_meshes.py`). It enumerates every distinct image filename referenced by the mdl's material entries and `image_list.json`, looks each one up in the source's image catalogue, and for every match produces a **per-mdl unique copy** of that image in the output: the renamed copy is anchored on the *new* mdl basename, not the original, so two source mdls that both reference `chr0001_face.dds` end up with two distinct renamed copies that no other mod can clobber. References to images that are not present in the source are left in the JSONs unchanged — the engine is expected to find those elsewhere in the game.
+
+After the image copies are materialized, the script patches both texture-name carriers inside the rebuilt mdl: `image_list.json` (which keeps file extensions) and `material_info.json` (where `texture_image_name` carries no extension). The mdl is then repacked using the same import logic that produced the in-memory representation, written to the output under the new name, and the matching `.mi` side-car is renamed in lockstep. A missing `.mi` is not fatal — the script logs a warning and continues.
+
+The output is either a directory tree (default for project / single-archive input) or a `.p3a` archive (`--p3a`; default for `--game` mode). When packing as `.p3a`, existing entries pulled from the source keep their original `cmp_type` verbatim — only the renamed mdls and renamed images go through the chosen `--p3a-compression`. Both archive versions `1100` and `1200` are supported, and an existing per-archive ZSTD training dictionary is preserved on output. The default output path in `--game` mode is `<cwd>/kuro_mdl_rename_output.p3a` — the directory the script was run from. This is deliberate: dropping a generated mod next to vanilla `.p3a` files inside the game directory is risky, so the default keeps it separate.
+
+The whole run is **dry-run by default**. The full per-mdl plan is printed (renamed mdls, per-mdl image copies, missing references) so it can be reviewed before passing `--apply`. The script is also fully cleanup-safe: every transient scratch directory is removed on success, error, or `Ctrl+C` via a top-level `try / finally`.
+
+#### Source Modes
+
+```
+SOURCE MODES (auto-detected, or selected explicitly):
+  * --game [PATH]   Trails / ED9 game directory (PRIMARY mode).
+                    A folder containing many top-level .p3a archives
+                    that together carry asset/common/model/,
+                    asset/common/model_info/, asset/dx11/image/.
+                    Without PATH: uses the script's own directory
+                    (so you can drop the script into the game folder).
+  * <project>       Project directory tree with the standard layout
+                    (asset/common/model/, asset/common/model_info/,
+                    asset/dx11/image/, ...).
+  * <archive>.p3a   A single .p3a archive (auto-detected by extension
+                    and extracted to a temporary working directory).
+```
+
+#### All Parameters
+
+```
+kuro_mdl_rename.py [project] [options]
+
+POSITIONAL:
+  project                  Path to project directory or .p3a archive.
+                           Ignored when --game is active. Defaults to cwd.
+
+GAME-DIRECTORY MODE (PRIMARY):
+  --game [GAMEDIR]         Treat source as a Trails / ED9 game install.
+                           Without a path: uses the script's own directory.
+                           Combine with --select for the canonical workflow.
+
+SUBSET SELECTION (mutually exclusive with each other where noted):
+  --select                 Interactive picker. Mutually exclusive with
+                           --non-interactive and with --only / --only-from.
+  --only NAMES             Comma-separated mdl basenames or globs
+                           (repeatable). Trailing .mdl is optional.
+                           Examples: chr0001,chr0002      "chr*_c01"
+                                      chr*_c??             "*_c0[12]"
+                                      all
+  --only-from FILE         One name/glob per line, '#' starts a comment.
+
+NAMING:
+  --prefix STR             Prefix prepended to the renamed mdl basename
+                           (default: 'mod_').
+  --suffix STR             Suffix appended before .mdl (default: '').
+  --rename                 Per-mdl interactive rename: each mdl prompts for
+                           a new name (mutually exclusive with --non-interactive).
+
+OUTPUT:
+  --apply                  Write changes (without this, runs as dry-run).
+  --keep                   Copy non-mdl/non-image files verbatim into the
+                           output (no-op in --game mode where the scratch
+                           only contains files the pipeline already consumes).
+  --p3a                    Pack output as a .p3a archive. Defaults on in
+                           --game mode, off otherwise.
+  --p3a-compression TYPE   none | lz4 | zstd | zstd-dict (default lz4).
+  --p3a-version 1100|1200  Output P3A format version (default 1200).
+  --output PATH            Output destination. Defaults:
+                             '<project>_modded' next to the source for
+                             project / .p3a input,
+                             '<cwd>/kuro_mdl_rename_output.p3a' in --game
+                             mode (run-from directory, NOT inside the
+                             game folder).
+
+GENERAL:
+  --non-interactive        Disable all prompts (CLI-only run). Mutually
+                           exclusive with --rename and --select.
+  --no-color               Plain text output (no ANSI colors).
+  --log PATH               Log file path (default: <script_dir>/kuro_mdl_rename.log).
+  -v / --verbose           Verbose log output.
+```
+
+#### Picker Commands (inside `--select`)
+
+```
+<selection>      add to selection (numbers, ranges, names, globs, 'all')
+                 examples: 1,3,5-7   chr0001   chr*_c01   chr*_c??   *_c0[12]   all
+add <selection>  same as above (explicit form)
+remove <sel>     remove items from the selection
+/<glob>          set display filter (only show matching items)
+                 examples: /chr*  /*_c01  /chr*_c??  /*chr*_c01.mdl
+                 '/' alone clears the filter
+list [N]         show next page of current view (default N=50)
+first            restart paging from the top of the current view
+show             list the current selection
+clear            remove every item from the selection
+done             accept current selection and continue
+quit             abort the run
+help             this message
+```
+
+Numeric indices refer to the current VIEW (1..N of what is displayed). Names and globs are matched case-insensitively against ALL discovered `.mdl` files (not just the current view) — so `add chr0001` works even when a filter hides it. The trailing `.mdl` on names/globs is optional.
+
+#### Examples with Real Data
+
+**Build a costume mod from a game install (canonical workflow):**
+```bash
+# Pick the .mdl files interactively, write a single mod .p3a next to cwd
+py kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --select --apply
+
+# Production-validated example with a real Trails install:
+#   - 26410 .mdl files discovered across 3 contributing .p3a archives
+#   - 21 mdls selected via picker
+#   - 109 unique images referenced (452 total per-mdl image copies)
+#   - 0 missing references, all OK markers, 0 warnings/errors
+#   - 49 seconds total wall time on Steam install
+#   - output: kuro_mdl_rename_output.p3a (single .p3a in cwd)
+```
+
+**Drop the script into the game folder itself:**
+```bash
+# Once placed in the game folder, --game alone uses the script's own dir
+py kuro_mdl_rename.py --game --select --apply
+
+# Output goes next to the script (which IS the game dir in this case).
+# Pass --output to keep the mod elsewhere if you don't want it landing
+# next to vanilla archives.
+```
+
+**Non-interactive subset by glob (game-directory mode):**
+```bash
+# Match all chr5113 c0X variants (c00, c01, ..., c09):
+py kuro_mdl_rename.py --game "D:\Steam\..." --only "chr5113_c0?" --apply
+
+# Match all chr5113 cXX (any 2-character outfit suffix):
+py kuro_mdl_rename.py --game "D:\Steam\..." --only "chr5113_c??" --apply
+
+# Multiple globs (repeatable --only):
+py kuro_mdl_rename.py --game "D:\Steam\..." \
+    --only "chr5113_c??" --only "chr0001_c0[12]" --apply
+
+# From a file (one glob per line, '#' comments):
+cat > my_mod.txt <<'EOF'
+# Kloe alts
+chr0001_c0?
+# Estelle alts
+chr0002_c01
+chr0002_c02
+EOF
+py kuro_mdl_rename.py --game "D:\Steam\..." --only-from my_mod.txt --apply
+```
+
+**Per-mdl interactive rename:**
+```bash
+# Each selected mdl prompts for a new basename. Pre-filled default
+# is 'mod_<orig>'. Hit Enter to accept, type a name to override, or
+# delete the prefix to keep the original name.
+py kuro_mdl_rename.py --game "D:\Steam\..." --select --rename --apply
+```
+
+**Project tree as input, .p3a archive as output:**
+```bash
+# Existing project tree at C:\mods\pyrixiaSFW (already extracted),
+# rename in place, package the result as a .p3a archive next to the
+# source (default output path: pyrixiaSFW_modded.p3a):
+py kuro_mdl_rename.py C:\mods\pyrixiaSFW --p3a --apply
+
+# Same, but copy non-mdl assets verbatim too (so the output is a
+# complete drop-in replacement project):
+py kuro_mdl_rename.py C:\mods\pyrixiaSFW --p3a --keep --apply
+
+# Subset only — keep everything else verbatim (mod uses just one
+# character but the project archive is complete):
+py kuro_mdl_rename.py C:\mods\pyrixiaSFW --only "chr5113_c01" --keep --apply
+```
+
+**Single .p3a in / single .p3a out:**
+```bash
+# Auto-extracts the source archive to a transient scratch, runs the
+# pipeline, packages the output:
+py kuro_mdl_rename.py C:\mods\pyrixiaSFW.p3a --p3a --apply
+
+# Same, but with custom output name and ZSTD compression:
+py kuro_mdl_rename.py C:\mods\pyrixiaSFW.p3a \
+    --p3a --p3a-compression zstd --output mymod.p3a --apply
+```
+
+**Custom prefix/suffix (avoids collisions when collaborating with other modders):**
+```bash
+# Each modder picks a unique prefix/suffix combination so renamed
+# basenames in the published mods can never collide. Default prefix
+# is 'mod_'.
+py kuro_mdl_rename.py --game "D:\Steam\..." --only "chr*_c01" \
+    --prefix author1_ --suffix _v1 --apply
+# A character originally named chr0001_c01 becomes:
+#   author1_chr0001_c01_v1.mdl
+# Its referenced textures are renamed in lockstep, anchored on this
+# new basename, so the mod is fully namespaced.
+```
+
+**Full non-interactive run (CI / scripts):**
+```bash
+py kuro_mdl_rename.py C:\mods\pyrixiaSFW --non-interactive --apply --prefix mod_
+py kuro_mdl_rename.py --game "D:\Steam\..." --non-interactive \
+    --only "chr*_c01" --apply
+```
+
+**Dry-run inspection (default behavior — no files written):**
+```bash
+# Print the full per-mdl plan: renamed mdls, per-mdl image copies,
+# missing references, output path, compression choices. Without
+# --apply nothing is written.
+py kuro_mdl_rename.py --game "D:\Steam\..." --select
+py kuro_mdl_rename.py C:\mods\pyrixiaSFW --only "chr*_c01"
+```
+
+#### Output Path Resolution
+
+| Input mode | `--p3a` flag | Default output |
+|---|---|---|
+| `--game [PATH]` | on (default) | `<cwd>/kuro_mdl_rename_output.p3a` |
+| `--game [PATH]` | off | `<cwd>/kuro_mdl_rename_output/` (directory tree) |
+| project directory | off (default) | `<parent>/<project>_modded/` |
+| project directory | on | `<parent>/<project>_modded.p3a` |
+| single `.p3a` | off | `<parent>/<archive>_modded/` |
+| single `.p3a` | on (default for `.p3a` input) | `<parent>/<archive>_modded.p3a` |
+
+Override any of these with `--output PATH`. The log file always goes next to the running `kuro_mdl_rename.py` (overrideable with `--log PATH`).
+
+#### Mutual-Exclusion Rules
+
+- `--rename` and `--non-interactive` cannot be combined (rename needs prompts).
+- `--select` and `--non-interactive` cannot be combined (the picker IS interactive).
+- `--select` and `--only` / `--only-from` cannot be combined (use one or the other).
+
+#### Required Python Packages
+
+```
+blowfish, zstandard, xxhash, numpy, lz4    (and optionally colorama)
+```
+
+Without `colorama`, interactive blocks render in plain text; everything else still works. Without one of the others the script aborts on startup with a clear error message.
+
+#### Source-data Immutability
+
+The script **never modifies** the source. In `--game` mode the game's own `.p3a` archives are read-only; in project / single-archive mode the source tree or archive is read-only too. All output goes to a separate file or directory. The transient scratch directory used in `--game` mode and for single-`.p3a` input is removed automatically on every exit path (success, error, or Ctrl+C).
+
+---
+
 ## 3D Model Viewer Scripts
 
 All viewer scripts are located in the `viewer_mdl/` directory. They form an evolution from simple to full-featured:
@@ -1335,7 +1590,6 @@ viewer_mdl_textured.py <mdl_file> [--use-original-normals]
 
 ### viewer_mdl_textured_anim.py
 
-**Version:** Ver 1.0  
 **Purpose:** Full-featured 3D model viewer with textures, skeleton, animations, and gamepad support
 
 This is the **main viewer** — the most capable and feature-rich script.
@@ -1814,7 +2068,7 @@ A `.kurodlc.json` file contains DLC mod data organized into sections:
 - **DLCTableData** — Groups items into DLC packages with quantities
 - **ShopItem** — Assigns items to in-game shops
 
-**Shop-only variant** (v2.2): Files with only a `ShopItem` section are valid. These define shop assignments without creating new items (used for adding existing items to additional shops).
+**Shop-only variant**: Files with only a `ShopItem` section are valid. These define shop assignments without creating new items (used for adding existing items to additional shops).
 
 ### ID Relationships
 
