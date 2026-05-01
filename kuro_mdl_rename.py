@@ -4,41 +4,81 @@
 kuro_mdl_rename.py
 ==================
 
-Self-contained tool that produces a fresh, renamed copy of a Kuro no Kiseki /
-ED9 asset project. For every .mdl found under <project>/asset/common/model/
-it will:
+Self-contained tool that produces renamed mod .p3a archives for Kuro no
+Kiseki / ED9 games. The renaming is per-mdl and isolates each model's
+texture set into a private namespace so that two mods which touch
+overlapping vanilla assets never overwrite each other.
 
-  1. Compute a new mdl name (prefix + original + suffix).
-  2. Read the .mdl's material data and figure out which images it references.
-  3. Compare the referenced images against <project>/asset/dx11/image/ and
-     produce a unique renamed copy for every image actually present on disk.
-     The image rename is anchored on the *new* mdl basename so that two .mdl
-     files that share the same source image still end up referencing their
-     own private copy in the output project.
-  4. Patch image_list.json (extension preserved) and material_info.json
+PRIMARY WORKFLOW
+----------------
+Point the script at the game's install directory, interactively pick
+the .mdl files you want to mod, and let it produce a single mod .p3a
+archive in the directory you ran the script from:
+
+    py kuro_mdl_rename.py --game "D:\\Steam\\...\\TrailsXYZ" --select --apply
+
+If the script lives inside the game folder itself, --game alone (no
+path) is enough:
+
+    py kuro_mdl_rename.py --game --select --apply
+
+In this mode the script reads every .p3a's table of contents at the
+game-folder top level, presents the discovered mdls in an interactive
+picker (with display filter, paging and glob-add) and extracts ONLY
+the files the selected models actually need into a transient scratch
+directory before packaging them. The game's own data is never modified.
+
+WHAT THE SCRIPT DOES PER .mdl
+-----------------------------
+  1. Computes a new mdl basename (prefix+original+suffix; or a name
+     you enter under --rename; or the original name unchanged).
+  2. Reads the .mdl's material data and figures out which images it
+     references.
+  3. Compares those references against the project's image catalogue
+     and produces a unique renamed copy for every image actually
+     available. The image rename is anchored on the *new* mdl basename
+     so two .mdl files that share the same source image still end up
+     referencing their own private copy in the output.
+  4. Patches image_list.json (extension preserved) and material_info.json
      (texture_image_name has no extension in this file).
-  5. Repack the .mdl using the embedded import logic, write it to the new
-     project tree under the new name, then clean up scratch files.
+  5. Repacks the .mdl using the embedded import logic, writes it under
+     the new name, then cleans up scratch files.
+  6. Renames the matching .mi side-car (if present).
 
-References that point at images NOT present on disk are left untouched and
-are listed in a per-mdl summary at the end.
+References to images that are NOT present in the source are left
+untouched in the JSONs (the engine is expected to find them elsewhere
+in the game). Source data is never modified.
 
-Images that exist on disk but are not referenced by any of the project's
-.mdl files are simply not copied to the output (per the spec).
+ALTERNATIVE INPUT MODES
+-----------------------
+The script also handles legacy project layouts as the source:
+  * a project directory tree (asset/common/model/, asset/dx11/image/, ...)
+  * a single .p3a archive (extracted on the fly to a transient scratch)
 
-Source data is never modified -- everything goes into a separate output
-directory next to the source.
+For these the output defaults to a directory tree; pass --p3a to
+package as a .p3a archive.
 
-Default mode is dry-run; use --apply to actually write the new project.
+SUBSET SELECTION (default = all discovered .mdls)
+-------------------------------------------------
+  * --select          interactive picker with display filter, paging,
+                      glob-add, and a 'help' command (recommended for
+                      game-directory mode -- see PRIMARY WORKFLOW)
+  * --only NAMES      comma-separated names or globs (chr*_c01, etc.)
+  * --only-from FILE  one name/glob per line; '#' is a line comment
 
-Usage examples (Windows cmd):
-    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW
-    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --apply
-    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --prefix mod_ --suffix _v2 --apply
-    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --output C:\\mods\\pyrixiaSFW_modded --apply
+Default mode is dry-run; pass --apply (or answer 'yes' to the apply
+prompt in interactive mode) to actually write files.
 
-Requires: blowfish, zstandard, xxhash, numpy   (and optionally colorama)
-    py -m pip install blowfish zstandard xxhash numpy colorama
+More usage examples:
+    py kuro_mdl_rename.py --game --only "chr*_c01" --apply
+    py kuro_mdl_rename.py C:\\mods\\proj --apply
+    py kuro_mdl_rename.py C:\\mods\\proj.p3a --p3a --apply
+    py kuro_mdl_rename.py C:\\mods\\proj --select
+
+Run with --help for the full reference.
+
+Requires: blowfish, zstandard, xxhash, numpy, lz4   (and optionally colorama)
+    py -m pip install blowfish zstandard xxhash numpy lz4 colorama
 """
 
 # ---------------------------------------------------------------------------
@@ -245,7 +285,7 @@ def prompt_with_default(prompt, default, allow_empty=True):
         if not used_prefill:
             # Bracket-style fallback. Empty input -> default.
             base = prompt.rstrip().rstrip(":")
-            shown = " [{}]".format(default) if default else ""
+            shown = " " + _dim("[{}]".format(default)) if default else ""
             try:
                 raw = _real_input("{}{}: ".format(base, shown))
             except EOFError:
@@ -253,7 +293,7 @@ def prompt_with_default(prompt, default, allow_empty=True):
             val = raw if raw != "" else default
 
         if val == "" and not allow_empty:
-            sys.stdout.write("  Value cannot be empty. Try again.\n")
+            sys.stdout.write("  " + _red("Value cannot be empty.") + " Try again.\n")
             continue
         return val
 
@@ -3309,73 +3349,99 @@ def _interactive_select_mdls(mdls):
         Updates page_offset[0] to the next position (wrapping to 0 when end
         reached). Returns nothing."""
         if not view_list:
-            sys.stdout.write("  (no items in current view)\n")
+            sys.stdout.write("  " + _dim("(no items in current view)") + "\n")
             page_offset[0] = 0
             return
         if page_offset[0] >= len(view_list):
-            sys.stdout.write("  (end reached; wrapping to start)\n")
+            sys.stdout.write("  " + _cyan("(end reached; wrapping to start)") + "\n")
             page_offset[0] = 0
         start = page_offset[0]
         end = min(start + size, len(view_list))
         width = max(3, len(str(len(view_list))))
         for i in range(start, end):
             p = view_list[i]
-            marker = "[x]" if p in selected else "[ ]"
-            sys.stdout.write("  {} {:>{w}}.  {}\n".format(
-                marker, i + 1, basename_of(p), w=width))
+            is_sel = p in selected
+            marker = _green("[x]") if is_sel else _dim("[ ]")
+            idx_str = _dim("{:>{w}}.".format(i + 1, w=width))
+            name = _bold(basename_of(p)) if is_sel else basename_of(p)
+            sys.stdout.write("  {} {}  {}\n".format(marker, idx_str, name))
         if end < len(view_list):
-            sys.stdout.write("  ... {} more (type 'list' for next page, "
-                             "'first' to restart)\n".format(len(view_list) - end))
+            sys.stdout.write(
+                "  " + _dim("... {} more (type ".format(len(view_list) - end))
+                + _bold(_green("'list'")) + _dim(" for next page, ")
+                + _bold(_green("'first'")) + _dim(" to restart)") + "\n")
             page_offset[0] = end
         else:
             page_offset[0] = 0
             if start > 0:
-                sys.stdout.write("  (end of list)\n")
+                sys.stdout.write("  " + _dim("(end of list)") + "\n")
+
+    def _cmd(name):
+        """Style helper: command name in bold green for the help block."""
+        return _bold(_green(name))
+
+    def _kw(text):
+        """Style helper: parameter / keyword in cyan."""
+        return _cyan(text)
 
     def show_help():
         sys.stdout.write(
-            "  Commands (case-insensitive):\n"
-            "    <selection>         add to selection (numbers, ranges, names, globs, 'all')\n"
-            "                        examples:  1,3,5-7   chr0001   chr*_c01   *_c0[12]   all\n"
-            "    add <selection>     same as above (explicit form)\n"
-            "    remove <selection>  remove items from the selection\n"
-            "    /<glob>             set display filter (only show matching items)\n"
-            "                        examples:  /chr*    /*_c01    /*chr*_c01.mdl\n"
-            "                        '/' alone clears the filter\n"
-            "    list [N]            show next page of current view (default N=50)\n"
-            "    first               restart paging from the top of the current view\n"
-            "    show                list the current selection\n"
-            "    clear               remove every item from the selection\n"
-            "    done                accept current selection and continue\n"
-            "    quit                abort the run\n"
-            "    help                this message\n"
-            "  Notes:\n"
-            "    - Numeric indices refer to the current VIEW (1..N of what is displayed).\n"
-            "    - Names and globs are matched case-insensitively against ALL discovered\n"
-            "      .mdl files (not just the current view) -- so 'add chr0001' works even\n"
-            "      when a filter hides it.\n"
-            "    - Glob syntax is fnmatch: * = any chars, ? = one char, [abc] = char class.\n"
-            "    - The trailing '.mdl' on names/globs is optional.\n"
+            "  " + _bold("Commands") + _dim(" (case-insensitive):") + "\n"
+            "    " + _cmd("<selection>") + "         add to selection (numbers, ranges, names, globs, "
+            + _kw("'all'") + ")\n"
+            "    " + _dim("                        examples:  ")
+            + _kw("1,3,5-7") + "   " + _kw("chr0001") + "   " + _kw("chr*_c01")
+            + "   " + _kw("chr*_c??") + "   " + _kw("*_c0[12]") + "   " + _kw("all") + "\n"
+            "    " + _cmd("add <selection>") + "     same as above (explicit form)\n"
+            "    " + _cmd("remove <selection>") + "  remove items from the selection\n"
+            "    " + _cmd("/<glob>") + "             set display filter (only show matching items)\n"
+            "    " + _dim("                        examples:  ")
+            + _kw("/chr*") + "    " + _kw("/*_c01") + "    " + _kw("/chr*_c??")
+            + "    " + _kw("/*chr*_c01.mdl") + "\n"
+            "    " + _dim("                        ")
+            + _kw("'/'") + " alone clears the filter\n"
+            "    " + _cmd("list [N]") + "            show next page of current view (default N=50)\n"
+            "    " + _cmd("first") + "               restart paging from the top of the current view\n"
+            "    " + _cmd("show") + "                list the current selection\n"
+            "    " + _cmd("clear") + "               remove every item from the selection\n"
+            "    " + _cmd("done") + "                accept current selection and continue\n"
+            "    " + _cmd("quit") + "                abort the run\n"
+            "    " + _cmd("help") + "                this message\n"
+            "  " + _bold("Notes:") + "\n"
+            "    " + _dim("- Numeric indices refer to the current VIEW (1..N of what is displayed).") + "\n"
+            "    " + _dim("- Names and globs are matched case-insensitively against ALL discovered") + "\n"
+            "    " + _dim("  .mdl files (not just the current view) -- so 'add chr0001' works even") + "\n"
+            "    " + _dim("  when a filter hides it.") + "\n"
+            "    " + _dim("- Glob syntax is fnmatch: * = any chars, ? = one char, [abc] = char class.") + "\n"
+            "    " + _dim("- The trailing '.mdl' on names/globs is optional.") + "\n"
         )
 
-    sys.stdout.write("\n--- Select .mdl files to process ---\n")
-    sys.stdout.write("{} .mdl file(s) discovered under asset/common/model/.\n".format(
-        len(mdls)))
+    sys.stdout.write("\n" + _bold(_magenta("--- Select .mdl files to process ---")) + "\n")
+    sys.stdout.write(_bold(str(len(mdls))) + " .mdl file(s) discovered under "
+                     + _dim("asset/common/model/") + ".\n")
     show_help()
     if len(mdls) <= AUTO_SHOW_MAX:
         sys.stdout.write("\n")
         display_page(mdls, len(mdls))
     else:
         sys.stdout.write(
-            "\n  (list is large; type 'list' to page through it, or '/<glob>' to filter)\n")
+            "\n  " + _dim("(list is large; type ")
+            + _bold(_green("'list'")) + _dim(" to page through it, or ")
+            + _bold(_green("'/<glob>'")) + _dim(" to filter)") + "\n")
 
     while True:
         view = current_view()
         if filter_pat:
-            status = "[filter '{}': {} match]".format(filter_pat, len(view))
+            status = (_dim("[filter '") + _cyan(filter_pat) + _dim("': ")
+                      + _bold(_cyan(str(len(view)))) + _dim(" match]"))
         else:
-            status = "[no filter]"
-        prompt = "{} selected: {}/{} > ".format(status, len(selected), len(mdls))
+            status = _dim("[no filter]")
+        sel_count_str = (_bold(_green(str(len(selected))))
+                         if len(selected) > 0 else _dim(str(len(selected))))
+        prompt = "{} {}{}/{} {} ".format(
+            status, _dim("selected:"),
+            sel_count_str, _dim(str(len(mdls))),
+            _bold(">"))
         try:
             raw = _real_input(prompt).strip()
         except (KeyboardInterrupt, EOFError):
@@ -3391,19 +3457,21 @@ def _interactive_select_mdls(mdls):
             if not pat:
                 filter_pat = None
                 page_offset[0] = 0
-                sys.stdout.write("  Filter cleared.\n")
+                sys.stdout.write("  " + _cyan("Filter cleared.") + "\n")
                 continue
             new_view = _glob_match_mdls(mdls, pat)
             filter_pat = pat
             page_offset[0] = 0
             if not new_view:
                 sys.stdout.write(
-                    "  Filter '{}' matches 0 items.  (Filter is still set; "
-                    "type '/' alone to clear it.)\n".format(pat))
+                    "  " + _yellow("Filter '{}' matches 0 items.".format(pat))
+                    + "  " + _dim("(Filter is still set; type ")
+                    + _bold(_green("'/'")) + _dim(" alone to clear it.)") + "\n")
             else:
                 sys.stdout.write(
-                    "  Filter '{}' -> {} match(es). Showing first page:\n".format(
-                        pat, len(new_view)))
+                    "  " + _green("Filter '{}'".format(pat))
+                    + " -> " + _bold(_green(str(len(new_view))))
+                    + " match(es). Showing first page:\n")
                 display_page(new_view, PAGE)
             continue
 
@@ -3418,7 +3486,8 @@ def _interactive_select_mdls(mdls):
         if verb in ("done", "ok", "go", "accept"):
             if not selected:
                 sys.stdout.write(
-                    "  Selection is empty. Add items first, or type 'quit' to abort.\n")
+                    "  " + _yellow("Selection is empty.") + " Add items first, or type "
+                    + _bold(_green("'quit'")) + " to abort.\n")
                 continue
             return [p for p in mdls if p in selected]
 
@@ -3427,23 +3496,26 @@ def _interactive_select_mdls(mdls):
 
         if verb == "show":
             if not selected:
-                sys.stdout.write("  (selection is empty)\n")
+                sys.stdout.write("  " + _dim("(selection is empty)") + "\n")
             else:
                 for p in mdls:
                     if p in selected:
-                        sys.stdout.write("    {}\n".format(basename_of(p)))
-                sys.stdout.write("  total: {}\n".format(len(selected)))
+                        sys.stdout.write("    " + _green(basename_of(p)) + "\n")
+                sys.stdout.write("  " + _bold("total: ")
+                                 + _bold(_green(str(len(selected)))) + "\n")
             continue
 
         if verb == "clear":
             n = len(selected)
             selected.clear()
-            sys.stdout.write("  Cleared {} item(s) from selection.\n".format(n))
+            sys.stdout.write("  " + _yellow("Cleared {} item(s) from selection.".format(n))
+                             + "\n")
             continue
 
         if verb in ("first", "reset", "top"):
             page_offset[0] = 0
-            sys.stdout.write("  Page offset reset to top of current view.\n")
+            sys.stdout.write("  " + _cyan("Page offset reset to top of current view.")
+                             + "\n")
             continue
 
         if verb == "list":
@@ -3455,7 +3527,8 @@ def _interactive_select_mdls(mdls):
 
         if verb in ("remove", "rm", "del", "drop"):
             if not rest.strip():
-                sys.stdout.write("  remove: missing argument. Try 'help'.\n")
+                sys.stdout.write("  " + _red("remove: missing argument.") + " Try "
+                                 + _bold(_green("'help'")) + ".\n")
                 continue
             paths, unknown = _resolve_selection_tokens(rest, mdls, view)
             removed = 0
@@ -3464,15 +3537,19 @@ def _interactive_select_mdls(mdls):
                     selected.discard(p)
                     removed += 1
             if unknown:
-                sys.stdout.write("  Unmatched: {}\n".format(", ".join(unknown)))
-            sys.stdout.write("  - {} removed   (selection: {}/{})\n".format(
-                removed, len(selected), len(mdls)))
+                sys.stdout.write("  " + _red("Unmatched: ")
+                                 + _yellow(", ".join(unknown)) + "\n")
+            sys.stdout.write("  " + _bold(_yellow("- {}".format(removed)))
+                             + " removed   "
+                             + _dim("(selection: {}/{})".format(
+                                 len(selected), len(mdls))) + "\n")
             continue
 
         # 'add <selection>' OR plain selection tokens (the common case).
         if verb == "add":
             if not rest.strip():
-                sys.stdout.write("  add: missing argument. Try 'help'.\n")
+                sys.stdout.write("  " + _red("add: missing argument.") + " Try "
+                                 + _bold(_green("'help'")) + ".\n")
                 continue
             sel_text = rest
         else:
@@ -3480,7 +3557,8 @@ def _interactive_select_mdls(mdls):
 
         paths, unknown = _resolve_selection_tokens(sel_text, mdls, view)
         if not paths and not unknown:
-            sys.stdout.write("  Nothing to do. Type 'help' for commands.\n")
+            sys.stdout.write("  " + _yellow("Nothing to do.") + " Type "
+                             + _bold(_green("'help'")) + " for commands.\n")
             continue
         added = 0
         for p in paths:
@@ -3488,9 +3566,12 @@ def _interactive_select_mdls(mdls):
                 selected.add(p)
                 added += 1
         if unknown:
-            sys.stdout.write("  Unmatched: {}\n".format(", ".join(unknown)))
-        sys.stdout.write("  + {} added   (selection: {}/{})\n".format(
-            added, len(selected), len(mdls)))
+            sys.stdout.write("  " + _red("Unmatched: ")
+                             + _yellow(", ".join(unknown)) + "\n")
+        sys.stdout.write("  " + _bold(_green("+ {}".format(added)))
+                         + " added   "
+                         + _dim("(selection: {}/{})".format(
+                             len(selected), len(mdls))) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -3501,23 +3582,61 @@ def parse_args(argv=None):
         prog="kuro_mdl_rename",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Produce a renamed copy of a Kuro no Kiseki / ED9 mdl asset project.\n"
+            "Produce renamed mod .p3a archives for Kuro no Kiseki / ED9 games.\n"
+            "The renaming is per-mdl and isolates each model's textures into a\n"
+            "private namespace so mods that touch overlapping vanilla assets\n"
+            "never overwrite each other.\n"
             "\n"
-            "Source can be either a directory tree (the layout under <project>\n"
-            "with asset/common/model/, asset/dx11/image/, etc.) OR a .p3a\n"
-            "archive (it is auto-detected by extension and extracted to a\n"
-            "temporary working directory). Output can be either a directory\n"
-            "tree (default) or a .p3a archive (--p3a).\n"
+            "PRIMARY WORKFLOW\n"
+            "----------------\n"
+            "Point the script at the game's install directory with --game and\n"
+            "interactively pick which .mdl files to mod with --select. The\n"
+            "script reads every .p3a's table of contents at the game-folder\n"
+            "top level, lets you filter / page / glob-pick the models, then\n"
+            "extracts ONLY the files the selected mdls actually need into a\n"
+            "transient scratch directory and packages them into a single mod\n"
+            ".p3a archive in the directory the script was run from:\n"
             "\n"
-            "For every .mdl found under <project>/asset/common/model/, the\n"
-            "script:\n"
-            "  1. Picks a new name for the mdl (prefix/suffix, or a name you\n"
-            "     enter interactively under --rename). You may also keep the\n"
-            "     original name unchanged.\n"
+            "    py kuro_mdl_rename.py --game \"D:\\Path\\To\\GameInstall\" --select --apply\n"
+            "\n"
+            "If the script lives inside the game folder, --game alone (no\n"
+            "path) uses the script's own directory.\n"
+            "\n"
+            "ALL SUPPORTED SOURCES\n"
+            "---------------------\n"
+            "  * --game [PATH]   Trails / ED9 GAME DIRECTORY (the primary mode\n"
+            "                    described above) -- a folder with many .p3a\n"
+            "                    archives at top level. The script reads each\n"
+            "                    archive's TOC and presents the discovered\n"
+            "                    .mdl files for selection;\n"
+            "  * <project>       a project directory tree (the layout under\n"
+            "                    <project>/ with asset/common/model/,\n"
+            "                    asset/common/model_info/, asset/dx11/image/,\n"
+            "                    ...);\n"
+            "  * <archive>.p3a   a single .p3a archive (auto-detected by\n"
+            "                    extension and extracted to a temporary\n"
+            "                    working directory).\n"
+            "\n"
+            "Output is either a directory tree (default for project / .p3a\n"
+            "input) or a single .p3a archive (--p3a; default for --game).\n"
+            "\n"
+            "SUBSET SELECTION (default = all discovered .mdls)\n"
+            "-------------------------------------------------\n"
+            "  --select          interactive picker with display filter, paging\n"
+            "                    and glob-based selection (recommended; scales\n"
+            "                    to thousands of mdls)\n"
+            "  --only NAMES      comma-separated mdl basenames or globs\n"
+            "                    (e.g. --only chr0001,chr0002 or --only \"chr*_c01\")\n"
+            "  --only-from FILE  read names/globs from a text file, one per line\n"
+            "\n"
+            "FOR EVERY .mdl IN SCOPE, THE SCRIPT:\n"
+            "------------------------------------\n"
+            "  1. Picks a new name for the mdl (prefix/suffix; or interactively\n"
+            "     under --rename; you may keep the original name unchanged).\n"
             "  2. Copies the mdl under that name into a SEPARATE output\n"
             "     directory (the source is never modified).\n"
             "  3. Reads the mdl's texture references and matches them, case-\n"
-            "     insensitively, against files in <project>/asset/dx11/image/.\n"
+            "     insensitively, against the project's image catalogue.\n"
             "  4. For each match, produces a per-mdl unique renamed copy in\n"
             "     the output's image folder. The image rename is anchored on\n"
             "     the chosen new mdl basename so two mdls that share the same\n"
@@ -3528,14 +3647,30 @@ def parse_args(argv=None):
             "  6. Renames the matching .mi side-car. A missing .mi is not\n"
             "     fatal (warned about and skipped).\n"
             "\n"
-            "References to images that are NOT present on disk are left\n"
+            "References to images that are NOT present in the source are left\n"
             "untouched in the JSONs (the engine is expected to find them\n"
-            "elsewhere in the game). On-disk images that no .mdl references\n"
-            "are not copied to the output."
+            "elsewhere in the game). Images that no .mdl references are not\n"
+            "copied to the output (in --game mode, they are not even extracted)."
         ),
         epilog=(
-            "Examples\n"
-            "--------\n"
+            "Primary workflow\n"
+            "----------------\n"
+            "Drop the script anywhere, point it at the game install directory,\n"
+            "interactively pick the .mdl files you want to mod -- the resulting\n"
+            "mod .p3a is written next to where you ran the script:\n"
+            "    py kuro_mdl_rename.py --game \"D:\\Steam\\...\\TrailsXYZ\" --select --apply\n"
+            "\n"
+            "If the script lives inside the game folder itself, --game alone\n"
+            "(no path) uses the script's own directory:\n"
+            "    py kuro_mdl_rename.py --game --select --apply\n"
+            "\n"
+            "Game-directory mode with non-interactive subset selection:\n"
+            "    py kuro_mdl_rename.py --game --only \"chr5113_c0?\" --apply\n"
+            "    py kuro_mdl_rename.py --game \"D:\\Steam\\...\\TrailsXYZ\" \\\n"
+            "                          --only \"chr*_c01\" --output mymod.p3a --apply\n"
+            "\n"
+            "Other source modes\n"
+            "------------------\n"
             "Default interactive run, project at the current directory:\n"
             "    py kuro_mdl_rename.py\n"
             "\n"
@@ -3560,14 +3695,6 @@ def parse_args(argv=None):
             "Pick the subset interactively (filter, page through, glob-add, etc.):\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --select\n"
             "\n"
-            "Game-directory mode (script lives in the game folder, 'mods/' subdir):\n"
-            "    py kuro_mdl_rename.py --game --select --apply\n"
-            "    py kuro_mdl_rename.py --game --only \"chr5113_c0?\" --apply\n"
-            "\n"
-            "Game-directory mode with explicit path:\n"
-            "    py kuro_mdl_rename.py --game \"D:\\Steam\\steamapps\\common\\TrailsXYZ\" \\\n"
-            "                          --only \"chr*_c01\" --output mymod.p3a --apply\n"
-            "\n"
             "Subset + keep everything else verbatim (so the output is a complete project):\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --only chr0001 --keep --apply\n"
             "\n"
@@ -3590,12 +3717,33 @@ def parse_args(argv=None):
             "  pipes and dumb terminals).\n"
             "* Pass --non-interactive to disable all prompts. In that mode\n"
             "  any value not on the CLI takes its built-in default:\n"
-            "      prefix = 'mod_'    suffix = ''     apply = False (dry-run)\n"
+            "      prefix = 'mod_'    suffix = ''\n"
+            "      apply  = False (dry-run)    keep   = False\n"
+            "      p3a    = False (or True in --game mode)\n"
             "      output = '<project>_modded' next to the source\n"
-            "      keep   = False (only the renamed files appear in output)\n"
+            "               (or '<cwd>/kuro_mdl_rename_output.p3a' in --game mode --\n"
+            "                placed in the directory the script was run from, NOT\n"
+            "                in the game directory itself)\n"
             "* The script is dry-run by default -- the plan is logged and\n"
             "  printed but no files are written until you pass --apply (or\n"
             "  answer 'yes' to the apply prompt in interactive mode).\n"
+            "* In --game mode the source is many .p3a archives; only the\n"
+            "  selected mdls and the files they actually reference are\n"
+            "  extracted to a transient scratch directory. The scratch is\n"
+            "  removed automatically on every exit path (success, error,\n"
+            "  Ctrl+C). --keep is a no-op in --game mode (the scratch only\n"
+            "  contains files the renaming pipeline already consumes).\n"
+            "* The interactive --select picker scales to thousands of mdls:\n"
+            "  type 'help' inside it for the full command list (filter,\n"
+            "  paging, glob-add, etc.).\n"
+            "* Glob patterns (in --only, --only-from, and inside --select)\n"
+            "  use fnmatch syntax: '*' = any chars, '?' = one char,\n"
+            "  '[abc]' = character class. On Windows cmd, quote patterns\n"
+            "  to keep them intact (e.g. --only \"chr*_c01\").\n"
+            "* Mutually exclusive flag combinations:\n"
+            "      --rename + --non-interactive\n"
+            "      --select + --non-interactive\n"
+            "      --select + --only / --only-from\n"
             "* The log file is always written next to this Python script,\n"
             "  not into the output directory. Override with --log."
         ),
@@ -3607,9 +3755,11 @@ def parse_args(argv=None):
                         "exactly one nested project folder (zip-extraction layout). "
                         "Ignored when --game is active.")
     p.add_argument("--game", nargs="?", const="", default=None, metavar="GAMEDIR",
-                   help="Treat the source as a Trails / ED9 game directory: a folder "
-                        "that holds many .p3a archives at its top level, each "
-                        "carrying part of the asset tree (asset/common/model/, "
+                   help="*** PRIMARY MODE *** -- treat the source as a Trails / ED9 "
+                        "game directory. Combine with --select for the canonical "
+                        "workflow ('py kuro_mdl_rename.py --game \"PATH\" --select --apply'). "
+                        "The directory must contain many .p3a archives at its top level, "
+                        "each carrying part of the asset tree (asset/common/model/, "
                         "asset/common/model_info/, asset/dx11/image/). The script "
                         "auto-detects which .p3a files contribute to those folders "
                         "by reading their tables of contents (no extraction at "
@@ -3631,7 +3781,14 @@ def parse_args(argv=None):
                    help="Suffix added to renamed mdl files, before .mdl (default: empty). "
                         "Ignored under --rename.")
     p.add_argument("--output", "-o", default=None,
-                   help="Output project directory (default: '<project>_modded' next to the source).")
+                   help="Output destination. With --p3a (or in --game mode where it "
+                        "defaults on) this is the .p3a archive path; without --p3a "
+                        "this is the output project directory. Defaults: "
+                        "'<project>_modded' next to the source for directory/p3a-input "
+                        "modes; '<cwd>/kuro_mdl_rename_output.p3a' in --game mode "
+                        "(placed in the directory the script was run from, not inside "
+                        "the game folder, to keep the new mod separate from vanilla "
+                        "data).")
     p.add_argument("--apply", action="store_true", default=None,
                    help="Actually write files. Without --apply (and without answering 'yes' "
                         "to the apply prompt in interactive mode) only the plan is logged.")
@@ -3640,12 +3797,16 @@ def parse_args(argv=None):
                         "doesn't touch) into the output project verbatim. This includes "
                         "unreferenced images, files in other folders under the project, etc. "
                         "Default: no -- only the renamed mdls, .mi side-cars and per-mdl "
-                        "renamed image copies appear in the output.")
+                        "renamed image copies appear in the output. Effectively a no-op "
+                        "in --game mode (the scratch directory contains only files the "
+                        "pipeline already consumes).")
     p.add_argument("--p3a", action="store_true", default=None,
-                   help="Pack the output as a P3A archive (.p3a) instead of (or in addition "
-                        "to) a directory tree. The intermediate directory is built and then "
-                        "packed; with --p3a it is removed afterwards. Source can also be a "
-                        ".p3a file -- it is auto-detected and extracted on the fly.")
+                   help="Pack the output as a P3A archive (.p3a) instead of a directory "
+                        "tree. The intermediate directory is built and then packed and the "
+                        "intermediate directory is removed afterwards. Source can also be "
+                        "a .p3a file -- it is auto-detected and extracted on the fly. "
+                        "In --game mode this flag defaults to ON (game-dir output is "
+                        "almost always meant to be a single mod .p3a).")
     p.add_argument("--p3a-compression", default=None,
                    choices=["none", "lz4", "zstd", "zstd-dict"],
                    help="Compression algorithm for P3A output (default: 'lz4').")
@@ -3688,9 +3849,12 @@ def parse_args(argv=None):
     p.add_argument("--non-interactive", "--batch", dest="non_interactive",
                    action="store_true",
                    help="Disable ALL interactive prompts. Any value not present on the "
-                        "command line takes its default (prefix='mod_', suffix='', "
-                        "output='<project>_modded', apply=False, keep=False). "
-                        "Mutually exclusive with --rename.")
+                        "command line takes its default: prefix='mod_', suffix='', "
+                        "apply=False, keep=False, p3a=False (or True in --game mode), "
+                        "output='<project>_modded' next to the source (or "
+                        "'<cwd>/kuro_mdl_rename_output.p3a' in --game mode -- placed "
+                        "in the directory the script was run from, not the game "
+                        "folder). Mutually exclusive with --rename and with --select.")
     p.add_argument("--log", default=None,
                    help="Log file path (default: kuro_mdl_rename.log next to this script).")
     p.add_argument("--no-color", action="store_true",
@@ -3731,7 +3895,9 @@ def _validate_prefix_suffix(prefix, suffix):
 
 def _interactive_collect_prefix_suffix(prefix_default, suffix_default):
     """Prompt for prefix and suffix, looping until validation passes."""
-    sys.stdout.write("\n--- Interactive setup (press Enter to accept the pre-filled value) ---\n")
+    sys.stdout.write("\n" + _bold(_magenta(
+        "--- Interactive setup (press Enter to accept the pre-filled value) ---"))
+        + "\n")
     while True:
         prefix = prompt_with_default(
             "Prefix added to renamed mdl files: ", prefix_default
@@ -3742,7 +3908,7 @@ def _interactive_collect_prefix_suffix(prefix_default, suffix_default):
         err = _check_prefix_suffix(prefix, suffix)
         if err is None:
             return prefix, suffix
-        sys.stdout.write("  {}. Try again.\n".format(err))
+        sys.stdout.write("  " + _red(err) + ". Try again.\n")
         prefix_default, suffix_default = prefix or prefix_default, suffix or suffix_default
 
 
@@ -3785,30 +3951,33 @@ def _interactive_rename_each(plans):
     duplicates images and patches the JSONs to reference the per-mdl
     renamed copies, so per-mdl isolation holds even for unchanged names.
     """
-    sys.stdout.write("\n--- Per-mdl interactive rename ---\n")
-    sys.stdout.write("For every .mdl, type the new basename (without the .mdl extension) "
-                     "and press Enter. The pre-filled default is 'mod_<orig>'. To keep "
-                     "the original name, just edit it back and press Enter.\n\n")
+    sys.stdout.write("\n" + _bold(_magenta("--- Per-mdl interactive rename ---")) + "\n")
+    sys.stdout.write(_dim(
+        "For every .mdl, type the new basename (without the .mdl extension) "
+        "and press Enter. The pre-filled default is 'mod_<orig>'. To keep "
+        "the original name, just edit it back and press Enter.") + "\n\n")
     chosen = {}  # new_basename(lower) -> source_basename, to detect collisions
     for plan in plans:
         suggested = "mod_" + plan.src_basename
         while True:
             new_base = prompt_with_default(
-                "Rename '{}.mdl' to (without .mdl): ".format(plan.src_basename),
+                "Rename '{}.mdl' to (without .mdl): ".format(_cyan(plan.src_basename)),
                 suggested,
                 allow_empty=False,
             ).strip()
             if not new_base:
-                sys.stdout.write("  Name cannot be empty. Try again.\n")
+                sys.stdout.write("  " + _red("Name cannot be empty.") + " Try again.\n")
                 continue
             if not _is_safe_name(new_base):
-                sys.stdout.write("  Invalid characters (no whitespace and none of "
+                sys.stdout.write("  " + _red("Invalid characters")
+                                 + " (no whitespace and none of "
                                  ": \\ / * ? \" < > | ). Try again.\n")
                 continue
             existing = chosen.get(new_base.lower())
             if existing is not None and existing != plan.src_basename:
-                sys.stdout.write("  Name '{}' is already used by '{}.mdl' in this run. "
-                                 "Try again.\n".format(new_base, existing))
+                sys.stdout.write("  " + _red(
+                    "Name '{}' is already used by '{}.mdl' in this run.".format(
+                        new_base, existing)) + " Try again.\n")
                 continue
             break
         chosen[new_base.lower()] = plan.src_basename
@@ -3845,6 +4014,14 @@ def main(argv=None):
     extraction directory is removed on every exit path (success, error, or
     Ctrl+C)."""
     args = parse_args(argv)
+
+    # Honour --no-color BEFORE any interactive prompt or scan output runs.
+    # setup_logging() will re-evaluate this later, but we need the global
+    # set up early so the picker / game-dir scan / source picker output
+    # is plain text when the user asked for it.
+    global _COLOR_ENABLED
+    if args.no_color:
+        _COLOR_ENABLED = False
 
     if args.rename and args.non_interactive:
         sys.stderr.write(
@@ -3890,12 +4067,16 @@ def main(argv=None):
                 "ERROR: --game directory does not exist or is not a directory: {}\n".format(
                     game_dir))
             return 1
-        sys.stdout.write("Scanning game directory ({}): {}\n".format(
-            game_dir_origin, game_dir))
+        sys.stdout.write(_bold(_magenta("--- Scanning game directory ---")) + "\n")
+        sys.stdout.write("{} {} ({}): {}\n".format(
+            _dim("Source:"),
+            _bold("game directory"),
+            _dim(game_dir_origin),
+            _cyan(game_dir)))
 
         def _scan_progress(i, total, p3a_path):
-            sys.stdout.write("  [{:>2}/{:>2}] reading TOC: {}\n".format(
-                i, total, os.path.basename(p3a_path)))
+            sys.stdout.write("  " + _dim("[{:>2}/{:>2}] reading TOC: ".format(i, total))
+                             + _cyan(os.path.basename(p3a_path)) + "\n")
             sys.stdout.flush()
 
         try:
@@ -3917,8 +4098,11 @@ def main(argv=None):
         n_mi = len(game_idx.list_mi_index())
         n_img = len(game_idx.list_image_index())
         sys.stdout.write(
-            "  {} contributing archive(s); virtual index: {} mdl, {} mi, {} image.\n".format(
-                len(game_idx.contributing_p3a), n_mdl, n_mi, n_img))
+            "  " + _bold(_green(str(len(game_idx.contributing_p3a))))
+            + " contributing archive(s); virtual index: "
+            + _bold(str(n_mdl)) + " mdl, "
+            + _bold(str(n_mi)) + " mi, "
+            + _bold(str(n_img)) + " image.\n")
 
         if n_mdl == 0:
             sys.stderr.write(
@@ -3984,9 +4168,8 @@ def main(argv=None):
                 user_path_abs = path
                 args.project = path
                 sys.stdout.write(
-                    "Found a P3A archive in {}: using {}\n".format(
-                        os.path.dirname(path), os.path.basename(path))
-                )
+                    _dim("Found a P3A archive in ") + _dim(os.path.dirname(path))
+                    + _dim(": using ") + _cyan(os.path.basename(path)) + "\n")
             # kind == 'dir' -> user_path_abs already set; nothing to do.
         elif len(candidates) >= 2:
             interactive = not args.non_interactive
@@ -3994,31 +4177,47 @@ def main(argv=None):
                 sys.stderr.write(
                     "ERROR: multiple possible sources found in {}.\n"
                     "Specify one explicitly on the command line:\n".format(user_path_abs))
+                # Align filenames in a column so the suffix annotation lines
+                # up regardless of how the basenames vary in length.
+                err_name_w = max(len(p) for kind, p in candidates)
                 for kind, path in candidates:
+                    pad = " " * (err_name_w - len(path))
                     if kind == "dir":
                         sys.stderr.write(
-                            "    {}     (extracted project tree)\n".format(path))
+                            "    {}{}     (extracted project tree)\n".format(path, pad))
                     else:
                         sys.stderr.write(
-                            "    {}     (P3A archive)\n".format(path))
+                            "    {}{}     (P3A archive)\n".format(path, pad))
                 return 1
             # Interactive picker.
-            sys.stdout.write(
-                "Multiple possible sources found in {}:\n".format(user_path_abs))
+            sys.stdout.write(_bold(_magenta(
+                "--- Multiple possible sources in {} ---".format(user_path_abs))) + "\n")
+            # Align p3a basenames in a column so the size annotation lines
+            # up regardless of filename length. The dir candidate (if any)
+            # uses imperative phrasing ("use the extracted project tree...")
+            # which doesn't share the basename column anyway, so it just
+            # renders as a free-form line.
+            p3a_basenames = [os.path.basename(p) for k, p in candidates if k == "p3a"]
+            name_w = max((len(b) for b in p3a_basenames), default=0)
             for i, (kind, path) in enumerate(candidates, 1):
+                idx_str = _bold(_green("[{}]".format(i)))
                 if kind == "dir":
                     sys.stdout.write(
-                        "  [{}] use the extracted project tree (asset/ here)\n".format(i))
+                        "  {} use the extracted project tree ({})\n".format(
+                            idx_str, _dim("asset/ here")))
                 else:
                     size_mb = os.path.getsize(path) / (1024 * 1024)
+                    name = os.path.basename(path)
+                    pad = " " * (name_w - len(name))
                     sys.stdout.write(
-                        "  [{}] {}     ({:.1f} MB P3A archive)\n".format(
-                            i, os.path.basename(path), size_mb))
+                        "  {} {}{}     {}\n".format(
+                            idx_str, _cyan(name), pad,
+                            _dim("({:.1f} MB P3A archive)".format(size_mb))))
             while True:
                 try:
                     choice = _real_input(
-                        "Pick one to process (1-{}, or just press Enter to abort): ".format(
-                            len(candidates))).strip()
+                        "Pick one to process ({}, or just press Enter to abort): ".format(
+                            _bold("1-{}".format(len(candidates))))).strip()
                 except (KeyboardInterrupt, EOFError):
                     sys.stderr.write("\nCancelled.\n")
                     return 130
@@ -4036,7 +4235,7 @@ def main(argv=None):
                         break
                 except ValueError:
                     pass
-                sys.stdout.write("  Invalid choice. Try again.\n")
+                sys.stdout.write("  " + _yellow("Invalid choice. Try again.") + "\n")
 
     if _is_p3a_file(user_path_abs):
         src_p3a_path = user_path_abs
@@ -4044,7 +4243,8 @@ def main(argv=None):
         src_extract_dir = os.path.join(
             _script_dir(), "_kuro_mdl_rename_p3a_in_" + base)
         sys.stdout.write(
-            "Source is a P3A archive: extracting to {} ...\n".format(src_extract_dir)
+            _dim("Source is a P3A archive: extracting to ")
+            + _cyan(src_extract_dir) + _dim(" ...") + "\n"
         )
         if os.path.exists(src_extract_dir):
             shutil.rmtree(src_extract_dir, ignore_errors=True)
@@ -4155,8 +4355,9 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
     # extraction pass below pulls the matched images.
     if game_idx is not None:
         sys.stdout.write(
-            "\nMaterializing {} selected .mdl file(s) and matching .mi side-cars "
-            "into scratch...\n".format(len(mdls)))
+            "\n" + _bold(_magenta("--- Materializing selected game-dir files ---")) + "\n"
+            + _dim("Extracting ") + _bold(str(len(mdls)))
+            + _dim(" selected .mdl file(s) and matching .mi side-cars into scratch...") + "\n")
         try:
             mdl_n, mi_n, missing_mi = _materialize_game_subset(
                 game_idx, mdls, src_project)
@@ -4165,10 +4366,10 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
                 "ERROR: failed to materialise selected files: {}\n".format(e))
             return 1
         sys.stdout.write(
-            "  extracted {} mdl(s) + {} mi side-car(s){}\n".format(
-                mdl_n, mi_n,
-                " ({} mdl(s) without a .mi side-car: ok)".format(len(missing_mi))
-                if missing_mi else ""))
+            "  extracted " + _bold(_green(str(mdl_n))) + " mdl(s) + "
+            + _bold(_green(str(mi_n))) + " mi side-car(s)"
+            + (_dim(" ({} mdl(s) without a .mi side-car: ok)".format(len(missing_mi)))
+               if missing_mi else "") + "\n")
         if mdl_n == 0:
             sys.stderr.write("ERROR: no selected mdl could be extracted.\n")
             return 1
@@ -4226,8 +4427,8 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
                 "ERROR: failed to materialise referenced images: {}\n".format(e))
             return 1
         sys.stdout.write(
-            "Materialized {} unique image(s) referenced by selected mdls.\n".format(
-                n_img))
+            "Materialized " + _bold(_green(str(n_img)))
+            + " unique image(s) referenced by selected mdls.\n")
 
     # ---- Step 4: per-mdl interactive rename (only under --rename) ---------
     if args.rename:
@@ -4240,11 +4441,15 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
     # ---- Step 5: output destination + apply confirmation -----------------
     # Defaults for the output path differ depending on whether the user is
     # producing a directory or a P3A archive. In game-dir mode the source
-    # is the scratch directory which has an unhelpful internal name -- so
-    # we anchor the default on the GAME directory itself instead.
+    # is the scratch directory (not user-meaningful) and the GAME directory
+    # itself is the place we DO NOT want to dump output into (the new mod
+    # would land alongside the game's own .p3a archives, easy to mistake
+    # for a vanilla file). So we anchor the default on the CURRENT WORKING
+    # DIRECTORY -- the directory the user ran the script from -- which is
+    # what most CLI tools do and what users expect.
     def _default_p3a_output(src_root, src_p3a):
         if game_idx is not None:
-            return os.path.join(game_idx.game_dir, "kuro_mdl_rename_output.p3a")
+            return os.path.join(os.getcwd(), "kuro_mdl_rename_output.p3a")
         # If source was a P3A, place output next to it. Else next to source dir.
         if src_p3a:
             parent = os.path.dirname(os.path.abspath(src_p3a))
@@ -4256,7 +4461,7 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
 
     def _default_output_dir_local(default_src):
         if game_idx is not None:
-            return os.path.join(game_idx.game_dir, "kuro_mdl_rename_output")
+            return os.path.join(os.getcwd(), "kuro_mdl_rename_output")
         return _default_output_dir(default_src)
 
     if interactive:
