@@ -1,0 +1,14 @@
+{
+	"GENERATED": {
+		"game": "Multi",
+		"schema": {
+			"chr_id": "uint",
+			"flag": "uint",
+			"name": "toffset",
+			"face": "toffset",
+			"voice": "toffset",
+			"param1": "uint",
+			"param2": "uint"
+		}
+	}
+}

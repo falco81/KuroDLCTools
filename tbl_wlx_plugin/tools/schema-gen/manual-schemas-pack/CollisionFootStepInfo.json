@@ -1,0 +1,14 @@
+{
+	"GENERATED": {
+		"game": "Multi",
+		"schema": {
+			"name": "toffset",
+			"sound1": "toffset",
+			"sound2": "toffset",
+			"volume": "float",
+			"pitch": "float",
+			"flag1": "uint",
+			"flag2": "uint"
+		}
+	}
+}

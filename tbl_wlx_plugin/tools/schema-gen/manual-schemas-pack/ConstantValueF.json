@@ -1,0 +1,10 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"name": "toffset",
+			"value": "float",
+			"pad": "uint"
+		}
+	}
+}

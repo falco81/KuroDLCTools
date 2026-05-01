@@ -1,0 +1,16 @@
+{
+	"GENERATED": {
+		"game": "Multi",
+		"schema": {
+			"chr_name": "toffset",
+			"flags": "uint",
+			"type": "uint",
+			"val1": "float",
+			"val2": "float",
+			"val3": "float",
+			"val4": "float",
+			"val5": "float",
+			"val6": "float"
+		}
+	}
+}

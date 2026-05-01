@@ -1,0 +1,12 @@
+{
+	"GENERATED": {
+		"game": "Kuro",
+		"schema": {
+			"id": "ulong",
+			"voice": "toffset",
+			"param1": "uint",
+			"param2": "uint",
+			"flag": "ulong"
+		}
+	}
+}

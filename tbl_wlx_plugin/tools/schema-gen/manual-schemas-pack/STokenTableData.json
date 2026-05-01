@@ -1,0 +1,16 @@
+{
+	"GENERATED": {
+		"game": "Kuro",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"desc": "toffset",
+			"val1": "uint",
+			"val2": "uint",
+			"val3": "uint",
+			"val4": "uint",
+			"icon": "toffset",
+			"flags": "ulong"
+		}
+	}
+}

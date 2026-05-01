@@ -1,0 +1,10 @@
+{
+	"GENERATED": {
+		"game": "Kuro",
+		"schema": {
+			"chr_id": "uint",
+			"flag": "uint",
+			"effect": "toffset"
+		}
+	}
+}

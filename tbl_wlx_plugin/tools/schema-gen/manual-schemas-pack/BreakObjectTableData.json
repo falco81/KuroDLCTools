@@ -1,0 +1,15 @@
+{
+	"GENERATED": {
+		"game": "Multi",
+		"schema": {
+			"name1": "toffset",
+			"name2": "toffset",
+			"name3": "toffset",
+			"name4": "toffset",
+			"flags1": "uint",
+			"flags2": "uint",
+			"name5": "toffset",
+			"name6": "toffset"
+		}
+	}
+}

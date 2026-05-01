@@ -1,0 +1,11 @@
+{
+	"GENERATED": {
+		"game": "Multi",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"flag": "uint",
+			"param": "uint"
+		}
+	}
+}

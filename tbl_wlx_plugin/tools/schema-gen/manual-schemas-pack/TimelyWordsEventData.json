@@ -1,0 +1,29 @@
+{
+	"GENERATED": {
+		"game": "Kuro",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"desc": "toffset",
+			"param1": "uint",
+			"param2": "uint",
+			"param3": "uint",
+			"param4": "uint",
+			"param5": "uint",
+			"param6": "uint",
+			"param7": "uint",
+			"param8": "uint",
+			"param9": "uint",
+			"param10": "uint",
+			"param11": "uint",
+			"param12": "uint",
+			"param13": "uint",
+			"param14": "uint",
+			"param15": "uint",
+			"param16": "uint",
+			"flag1": "ulong",
+			"flag2": "ulong",
+			"extra": "ulong"
+		}
+	}
+}

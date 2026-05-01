@@ -1,0 +1,22 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"name1": "toffset",
+			"name2": "toffset",
+			"name3": "toffset",
+			"flags": "uint",
+			"type": "int",
+			"pos_x": "float",
+			"pos_y": "float",
+			"pos_z": "float",
+			"unk1": "uint",
+			"name4": "toffset",
+			"mode": "uint",
+			"unk2": "uint",
+			"name5": "toffset",
+			"submode": "uint",
+			"unk3": "uint"
+		}
+	}
+}

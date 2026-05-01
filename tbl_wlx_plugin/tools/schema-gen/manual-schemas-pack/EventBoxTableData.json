@@ -1,0 +1,18 @@
+{
+	"GENERATED": {
+		"game": "Multi",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"pos_x": "float",
+			"pos_y": "float",
+			"pos_z": "float",
+			"size_x": "float",
+			"size_y": "float",
+			"size_z": "float",
+			"flags": "uint",
+			"event": "uint",
+			"extra": "ulong"
+		}
+	}
+}

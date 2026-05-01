@@ -1,0 +1,17 @@
+{
+	"GENERATED": {
+		"game": "Kuro",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"item_id": "uint",
+			"count": "uint",
+			"rarity": "uint",
+			"rate": "uint",
+			"flags": "uint",
+			"pad1": "uint",
+			"icon": "toffset",
+			"category": "ulong"
+		}
+	}
+}

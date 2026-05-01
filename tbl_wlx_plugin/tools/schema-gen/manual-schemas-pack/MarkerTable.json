@@ -1,0 +1,18 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"group": "toffset",
+			"pos_x": "float",
+			"pos_y": "float",
+			"pos_z": "float",
+			"rot": "float",
+			"unk1": "uint",
+			"unk2": "uint",
+			"flag": "uint",
+			"pad": "uint"
+		}
+	}
+}
