@@ -1,0 +1,29 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2 from 399 sampled rows across 1 TBL files. Field names are placeholders. Verify before save.",
+		"schema": {
+			"field0": "uint",
+			"field1": "uint",
+			"field2": "uint",
+			"field3": "uint",
+			"field4": "uint",
+			"field5": "uint",
+			"field6": "toffset",
+			"field7": "uint",
+			"field8": "uint",
+			"field9": "toffset",
+			"field10": "uint",
+			"field11": "uint",
+			"field12": "toffset",
+			"field13": "uint",
+			"field14": "uint",
+			"field15": "toffset",
+			"field16": "uint",
+			"field17": "uint",
+			"field18": "toffset",
+			"field19": "toffset",
+			"field20": "toffset"
+		}
+	}
+}
