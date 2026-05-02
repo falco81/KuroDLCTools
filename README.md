@@ -263,16 +263,18 @@ python kurodlc_add_mdl.py NewMod.kurodlc.json --apply
 
 **Per-mdl Asset Namespacing (game-directory mode)**
 ```bash
-# Drop the script anywhere, point it at the game install directory,
-# pick the .mdl files you want to mod, get a single mod .p3a archive
-python kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --select --apply
+# Drop the script anywhere, point it at the game install directory.
+# The interactive picker opens by default — pick the .mdl files,
+# get a single mod .p3a archive in the directory you ran the script:
+python kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --apply
 ```
 - Reads every `.p3a` archive in the game folder lazily (TOC only at scan time)
-- Interactive picker for selecting which `.mdl` files to include in the mod
+- Interactive picker opens by default — text commands plus a Total-Commander-style cursor mode (arrow keys, Space/Insert toggle, `g`/`G` glob add/remove, `/` filter, `?` search) for hand-picking from large lists
 - Extracts only the selected mdls plus their `.mi` side-cars and the images they actually reference into a transient scratch directory
 - Renames each `.mdl` and produces per-mdl unique copies of the textures it uses (anchored on the renamed mdl basename) so two mods can never collide on the same vanilla texture
 - Patches `image_list.json` and `material_info.json` inside the renamed mdl, then repacks
 - Default output is a single `.p3a` archive in the directory the script was run from (the game folder is never written to)
+- `--select-all` skips the picker and processes every discovered mdl; `--only "chr*_c01"` / `--only-from list.txt` filter by glob
 
 **3D Model Viewing with Textures, Animations, and Scenes**
 ```bash
@@ -333,13 +335,14 @@ python viewer_mdl/viewer_mdl_window.py character.mdl
 
 ### Per-mdl Asset Namespacing (`kuro_mdl_rename.py`)
 - **Game-directory mode** — point at a Trails / ED9 install, the script reads every top-level `.p3a` lazily
-- **Interactive picker** — display filter, paging, glob-add, scales to thousands of mdls
-- **Subset by globs** — `--only "chr*_c01"`, `--only-from list.txt`, comma-separated names, etc.
+- **Interactive picker is the default** — opens automatically when no other selection flag is given. Text commands (`/glob`, `add`, `remove`, `done`, ...) plus a Total-Commander-style cursor mode (`pick` / `i` to enter; arrow keys, Space/Insert toggle, `g`/`G` glob, `/` filter, `?` search). Scales to thousands of mdls.
+- **Subset by globs** — `--only "chr*_c01"`, `--only-from list.txt`, comma-separated names; or `--select-all` to process every mdl with no picker
 - **Per-mdl texture isolation** — each renamed mdl gets its own private copies of the textures it references; no two mods collide
 - **Image_list.json + material_info.json patching** — both texture name carriers are kept in sync inside the rebuilt mdl
 - **Output formats** — directory tree (default for project / single-archive input) or `.p3a` archive (default for game-directory input)
 - **Mixed compression preserved** — when packing a `.p3a`, existing entries pulled from the source keep their original `cmp_type` (LZ4 / ZSTD / ZSTD-with-dictionary); only the renamed entries are recompressed
 - **Dry-run by default** — `--apply` required to write; full plan is printed first
+- **Friendly error in wrong directory** — running the script in a directory that has no `asset/` and no `.p3a` files prints a yellow banner suggesting `--game` mode with a ready-to-paste command instead of a bare error
 - **Source-data immutability** — the game directory and source archives are never modified
 
 ### 3D Model Viewing
@@ -482,16 +485,20 @@ KuroDLCTools/
 
 ### 1. Build a costume / character mod from a game install (`kuro_mdl_rename.py`)
 ```bash
-# Drop the script anywhere, point it at the game folder, pick the
-# .mdl files you want to mod — output is a single .p3a archive next
-# to where you ran the script
-python kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --select --apply
+# Drop the script anywhere, point it at the game folder. The
+# interactive picker opens by default — pick the .mdl files you
+# want to mod. Output is a single .p3a archive next to where you
+# ran the script:
+python kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --apply
 
 # If the script lives inside the game folder itself, --game alone is enough
-python kuro_mdl_rename.py --game --select --apply
+python kuro_mdl_rename.py --game --apply
 
 # Non-interactive subset selection by glob (game-directory mode)
 python kuro_mdl_rename.py --game --only "chr5113_c0?" --apply
+
+# Process every discovered .mdl, no picker (legacy "rename everything")
+python kuro_mdl_rename.py --game --select-all --apply
 ```
 
 ### 2. Fix ID Conflicts in your DLC
@@ -621,10 +628,12 @@ python find_unique_item_id_for_t_item_category.py
 - Directory tree (default for project / single-archive input) or
 - `.p3a` archive (`--p3a`; default for `--game` mode). Default output path in `--game` mode is `<cwd>/kuro_mdl_rename_output.p3a` — i.e. the directory the script was run from, never inside the game folder.
 
-**Subset selection (default = all discovered mdls):**
+**Subset selection:**
+
+The interactive picker is **the default** — running the script with no selection flag opens it. To skip the picker:
+
 ```
---select          interactive picker with display filter, paging, glob-add,
-                  show / clear / first / done / quit / help commands
+--select-all      process every discovered .mdl, no picker (legacy default)
 --only NAMES      comma-separated mdl basenames or globs, e.g.
                     --only chr0001,chr0002      --only "chr*_c01"
                     --only chr*_c??             --only "*_c0[12]"
@@ -633,27 +642,37 @@ python find_unique_item_id_for_t_item_category.py
                   (# starts a comment)
 ```
 
+`--non-interactive` (with no other selection flag) implies `--select-all`. The historical `--select` flag is still accepted but is now a no-op.
+
+The picker has two interchangeable modes:
+
+- **Command mode** (default) — text prompts: `/glob` filter, `add 1-50,chr*_c01`, `remove`, `list`, `show`, `clear`, `done`, `quit`, `help`.
+- **Cursor mode** — full-screen TUI; type `pick` or `i` at the prompt to enter. Arrow keys navigate, **Space** toggles the current row, **Insert** toggles + advances by one (Total-Commander convention), **g** / **G** add/remove by glob (with previous pattern pre-filled), **/** filter (pre-filled with current filter, editable), **?** / **n** / **N** substring search, **a** toggle all in view, **c** clear. **Enter** / **Esc** return to command mode (selection preserved); **q** aborts. Selection state and the active filter are shared across both modes — switch freely.
+
 Glob syntax is `fnmatch`: `*` = any chars, `?` = exactly one char, `[abc]` = character class. On Windows cmd, quote patterns to keep them intact (`--only "chr*_c01"`).
 
 **Usage:**
 ```bash
-# Game-directory mode (primary workflow)
-python kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --select --apply
-python kuro_mdl_rename.py --game --select --apply              # script lives in the game folder
+# Game-directory mode (primary workflow) — picker opens by default
+python kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --apply
+python kuro_mdl_rename.py --game --apply                       # script lives in the game folder
 python kuro_mdl_rename.py --game --only "chr5113_c0?" --apply  # non-interactive subset
+python kuro_mdl_rename.py --game --select-all --apply          # process every mdl, no picker
 
 # Project directory mode
-python kuro_mdl_rename.py C:\mods\pyrixiaSFW --apply
-python kuro_mdl_rename.py C:\mods\pyrixiaSFW --select          # interactive subset
+python kuro_mdl_rename.py C:\mods\pyrixiaSFW --apply           # picker opens by default
+python kuro_mdl_rename.py C:\mods\pyrixiaSFW --select-all --apply  # process every mdl
 python kuro_mdl_rename.py C:\mods\pyrixiaSFW --rename          # per-mdl rename prompt
 python kuro_mdl_rename.py C:\mods\pyrixiaSFW --p3a --apply     # output as .p3a
 
 # Single-archive input
 python kuro_mdl_rename.py C:\mods\pyrixiaSFW.p3a --p3a --apply
 
-# Non-interactive run (for scripts / CI)
+# Non-interactive run (for scripts / CI; implies --select-all when no list filter is given)
 python kuro_mdl_rename.py C:\mods\pyrixiaSFW --non-interactive --apply --prefix mod_
 ```
+
+When the script is run with no path argument in a directory that contains neither an `asset/` tree nor any `.p3a` files, it prints a yellow warning banner suggesting the `--game` workflow with a ready-to-paste command instead of a bare error.
 
 **Key options:**
 ```
@@ -662,13 +681,15 @@ python kuro_mdl_rename.py C:\mods\pyrixiaSFW --non-interactive --apply --prefix 
 --prefix STR                Prefix added to renamed mdl files (default 'mod_')
 --suffix STR                Suffix added before .mdl
 --rename                    Per-mdl interactive rename (each mdl asks for a new name)
+--select-all                Skip the picker; process every discovered .mdl
+--only NAMES / --only-from  Filter to a list (skips the picker)
 --apply                     Apply changes (without this, runs in dry-run mode)
 --keep                      Copy non-mdl/non-image files verbatim into the output
 --p3a                       Pack the output as a .p3a archive
---p3a-compression TYPE      none | lz4 | zstd | zstd-dict
+--p3a-compression TYPE      none | lz4 | zstd | zstd-dict (default lz4)
 --p3a-version 1100|1200     Output P3A format version (default 1200)
 --output PATH               Output destination (directory or .p3a path)
---non-interactive           Disable all prompts (CLI-only run)
+--non-interactive           Disable all prompts; implies --select-all when no list filter is given
 --no-color                  Plain text output (no ANSI colors)
 -v / --verbose              Verbose log output
 ```
@@ -1034,19 +1055,24 @@ python viewer_mdl/viewer.py character.mdl
 ### Workflow 1: Build a costume mod from a game install
 ```bash
 # Step 1 — drop kuro_mdl_rename.py somewhere convenient
-# Step 2 — point at the game install, pick the .mdl files in the picker:
-python kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --select --apply
+# Step 2 — point at the game install. The interactive picker opens
+#          by default; pick the .mdl files inside it:
+python kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --apply
 # → output: <cwd>/kuro_mdl_rename_output.p3a (a single mod archive,
 #           never written into the game folder)
 
 # Optional: do a dry run first (prints the full plan and does not write)
-python kuro_mdl_rename.py --game "D:\Steam\..." --select
+python kuro_mdl_rename.py --game "D:\Steam\..."
 
 # Optional: skip the picker and use a glob for non-interactive runs
 python kuro_mdl_rename.py --game "D:\Steam\..." --only "chr*_c01" --apply
 
-# Optional: rename mdls one by one (each prompts for a new name)
-python kuro_mdl_rename.py --game "D:\Steam\..." --select --rename --apply
+# Optional: skip the picker and process every discovered .mdl
+python kuro_mdl_rename.py --game "D:\Steam\..." --select-all --apply
+
+# Optional: rename mdls one by one (each prompts for a new name;
+#           picker still opens first to choose which mdls to rename)
+python kuro_mdl_rename.py --game "D:\Steam\..." --rename --apply
 
 # Optional: a richer prefix/suffix scheme
 python kuro_mdl_rename.py --game "D:\Steam\..." --only "chr5113_c0?" \
