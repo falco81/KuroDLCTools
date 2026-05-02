@@ -4,33 +4,46 @@
 kuro_mdl_rename.py
 ==================
 
-Self-contained tool that produces renamed mod .p3a archives for Kuro no
-Kiseki / ED9 games. The renaming is per-mdl and isolates each model's
-texture set into a private namespace so that two mods which touch
-overlapping vanilla assets never overwrite each other.
+Self-contained tool that produces renamed mod archives for Trails-series
+games. Two engines / archive formats are supported:
+
+  * Kuro no Kiseki / ED9 / CS / Trails Beyond -- archives are .p3a, output
+    defaults to a single .p3a archive (the engine reads them directly).
+  * Trails in the Sky 1st Chapter -- archives are .pac (FPAC format,
+    typically under <game>/pac/steam/), output defaults to a directory
+    tree (which the engine loads transparently); pass --pac to package
+    the result as a single .pac archive instead.
+
+The renaming is per-mdl and isolates each model's texture set into a
+private namespace so that two mods which touch overlapping vanilla
+assets never overwrite each other.
 
 PRIMARY WORKFLOW
 ----------------
 Point the script at the game's install directory; the interactive picker
-opens by default and lets you choose which .mdl files to mod, then
-produces a single mod .p3a archive in the directory you ran the script
-from:
+opens by default and lets you choose which .mdl files to mod. The output
+goes into the directory you ran the script from (not the game folder):
 
     py kuro_mdl_rename.py --game "D:\\Steam\\...\\TrailsXYZ" --apply
+    py kuro_mdl_rename.py --game "D:\\Steam\\...\\Trails in the Sky 1st Chapter" --apply
 
 If the script lives inside the game folder itself, --game alone (no
 path) is enough:
 
     py kuro_mdl_rename.py --game --apply
 
-The picker reads every .p3a's table of contents at the game-folder
-top level (no extraction at scan time) and presents the discovered
-mdls with display filter, paging, glob-add, and a Total-Commander-
-style cursor mode (type 'pick' or 'i' inside the picker for
-arrow-key navigation). Only the mdls you chose plus their .mi
-side-cars and the images they actually reference are extracted into
-a transient scratch directory before packaging. The game's own data
-is never modified.
+The picker reads every archive's table of contents (no extraction at
+scan time) and presents the discovered mdls with display filter, paging,
+glob-add, and a Total-Commander-style cursor mode (type 'pick' or 'i'
+inside the picker for arrow-key navigation). Only the mdls you chose
+plus their .mi side-cars and the images they actually reference are
+extracted into a transient scratch directory before packaging. The
+game's own data is never modified.
+
+The scan recurses into subdirectories by default (so the Sky 1st layout
+with archives under pac/steam/ is handled transparently). Use
+--no-recursive to limit the scan to the top level. The 'mods/' subfolder
+is skipped by default; pass --with-mods to include it.
 
 WHAT THE SCRIPT DOES PER .mdl
 -----------------------------
@@ -107,6 +120,7 @@ import re
 import shutil
 import struct
 import sys
+import zlib
 from datetime import datetime
 from itertools import chain
 
@@ -2105,6 +2119,195 @@ class p3a_class:
 
 
 
+# ---------------------------------------------------------------------------
+# PAC archive support (Trails in the Sky 1st Chapter, FPAC format)
+# ---------------------------------------------------------------------------
+# The Sky 1st engine ships its asset tree inside one or more `.pac` files
+# (typically under `<game>/pac/steam/`). The format is much simpler than
+# P3A: a 16-byte header, an entry table of fixed-size 0x20 records, a name
+# table of NUL-terminated strings, and a back-to-back data block. Files are
+# stored uncompressed (zlib's CRC32 is only used to hash entry names, not
+# to compress contents).
+#
+# This class mirrors the *read* surface of `p3a_class` so the index code
+# below can treat both archive types uniformly:
+#     archive.f = open_file
+#     header, entries, _dict = archive.read_toc()
+#     bytes_   = archive.read_file(entry, _dict)
+#
+# The third tuple element (`_dict`) is always `None` for PAC and exists
+# only for API symmetry with P3A's per-archive ZSTD dictionary. PAC has
+# no equivalent.
+
+class pac_class:
+    """Reader for the Trails in the Sky 1st Chapter `.pac` format (FPAC).
+    Read-only; this script only ever extracts files from existing PACs --
+    new mod archives go out as `.pac` via a writer below or as a directory
+    tree, never by mutating the source.
+
+    Format (little-endian throughout):
+      offset 0x00  4   magic 'FPAC'
+      offset 0x04  4   file count
+      offset 0x08  4   header_size  (= 0x10 + count*0x20 + sum(len(name)+1))
+      offset 0x0c  4   format version (always 1 in observed archives)
+      0x10           entries[count]:
+                       0x00 4  name CRC32 (XOR 0xFFFFFFFF)
+                       0x04 4  flags (always 0)
+                       0x08 8  name offset (absolute)
+                       0x10 8  data size
+                       0x18 8  data offset (absolute)
+      then           NUL-terminated names, back-to-back, in entry order
+      then           data block, files referenced by absolute offset
+    """
+
+    def __init__(self):
+        self.f = None
+
+    @staticmethod
+    def _read_cstring(f, offset):
+        """Read NUL-terminated UTF-8 string at `offset`, restoring the
+        file position afterwards."""
+        save = f.tell()
+        try:
+            f.seek(offset)
+            buf = bytearray()
+            while True:
+                ch = f.read(1)
+                if not ch or ch == b"\x00":
+                    break
+                buf.extend(ch)
+            return buf.decode("utf-8", errors="replace")
+        finally:
+            f.seek(save)
+
+    def read_toc(self):
+        """Read header + entry table + names. Returns (header, entries, None).
+        Entries mirror the keys used by p3a_class: 'name', 'offset',
+        'cmp_size', 'unc_size', 'cmp_type'. Since PAC is uncompressed,
+        cmp_size == unc_size and cmp_type is always 0."""
+        self.f.seek(0)
+        magic = self.f.read(4)
+        if magic != b"FPAC":
+            raise IOError("not a PAC archive (bad magic: {!r})".format(magic))
+        count, header_size, version = struct.unpack("<3I", self.f.read(12))
+        header = {
+            "magic": "FPAC",
+            "num_files": count,
+            "header_size": header_size,
+            "version": version,
+        }
+        # Read the fixed-size entry records first so we know where every
+        # name string lives, then resolve each name lazily via _read_cstring
+        # (the names live BEHIND the entry table, before the data block).
+        raw_entries = []
+        for _ in range(count):
+            name_hash, flags, name_off, size, data_off = struct.unpack(
+                "<2I3Q", self.f.read(0x20))
+            raw_entries.append((name_hash, flags, name_off, size, data_off))
+        entries = []
+        for name_hash, flags, name_off, size, data_off in raw_entries:
+            name = self._read_cstring(self.f, name_off)
+            entries.append({
+                "name": name,
+                "name_hash": name_hash,
+                "flags": flags,
+                "offset": data_off,
+                "cmp_size": size,
+                "unc_size": size,
+                "cmp_type": 0,  # PAC is always uncompressed
+            })
+        return header, entries, None
+
+    # API symmetry with p3a_class: third arg is unused for PAC.
+    def read_p3a_toc(self):
+        return self.read_toc()
+
+    def read_file(self, entry, _unused_dict=None):
+        """Read raw file bytes for `entry`. Returns the bytes; raises IOError
+        on a short read."""
+        self.f.seek(entry["offset"])
+        data = self.f.read(entry["cmp_size"])
+        if len(data) != entry["cmp_size"]:
+            raise IOError(
+                "short read for {}: expected {} bytes, got {}".format(
+                    entry["name"], entry["cmp_size"], len(data)))
+        return data
+
+    @staticmethod
+    def is_pac_file(path):
+        """Cheap content sniff: open the file and check for the FPAC magic.
+        Used by the auto-detection that decides whether a .pac extension is
+        actually our format or just a coincidence."""
+        try:
+            with open(path, "rb") as fh:
+                return fh.read(4) == b"FPAC"
+        except (OSError, IOError):
+            return False
+
+
+def _pac_pack_directory(folder, out_path, progress=None):
+    """Build a .pac archive from `folder` (recursively) into `out_path`.
+
+    Mirrors `sky_create_pac.py` from kuro_mdl_tool: name hashes are CRC32
+    of the path bytes XORed with 0xFFFFFFFF, the entry table is sorted by
+    hash, and file content is stored uncompressed. Used as the output
+    packaging step in --game mode when the source was a Sky 1st install.
+    """
+    # Collect every file under `folder` with a forward-slash relative path.
+    file_list = []
+    folder_norm = folder.replace("\\", "/").rstrip("/")
+    for root, _, files in os.walk(folder):
+        for name in sorted(files):
+            full = os.path.join(root, name)
+            rel = os.path.relpath(full, folder).replace("\\", "/")
+            file_list.append((rel, full))
+    file_list.sort(key=lambda t: t[0].lower())
+
+    # Build name hashes; the entry table is written sorted by hash.
+    paths = [p for p, _ in file_list]
+    full_paths = {p: f for p, f in file_list}
+    hashes = {p: zlib.crc32(p.encode("utf-8")) ^ 0xFFFFFFFF for p in paths}
+    hash_order = sorted(hashes.values())
+
+    header1_size = len(paths) * 0x20 + 0x10
+    header2 = bytearray()
+    name_offset_of = {}
+    for p in paths:
+        name_offset_of[p] = header1_size + len(header2)
+        header2.extend(p.encode("utf-8") + b"\x00")
+    header2_size = len(header2)
+
+    # Read every file and build the entry table by hash order.
+    data_block = bytearray()
+    entry_for_hash = {}
+    total = len(paths)
+    for i, p in enumerate(paths, 1):
+        if progress is not None:
+            progress(i, total, p)
+        with open(full_paths[p], "rb") as fh:
+            content = fh.read()
+        rec = struct.pack("<2I3Q",
+                          hashes[p], 0,
+                          name_offset_of[p],
+                          len(content),
+                          header1_size + header2_size + len(data_block))
+        entry_for_hash[hashes[p]] = rec
+        data_block.extend(content)
+
+    header1 = bytearray()
+    for h in hash_order:
+        header1.extend(entry_for_hash[h])
+
+    blob = (b"FPAC"
+            + struct.pack("<3I", len(paths),
+                          len(header1) + len(header2) + 0x10,
+                          1)
+            + header1 + header2 + data_block)
+    with open(out_path, "wb") as fh:
+        fh.write(blob)
+    return out_path
+
+
 # ===========================================================================
 # END EMBEDDED LIBRARY CODE
 # ===========================================================================
@@ -2408,79 +2611,122 @@ ASSET_PREFIX_MODEL_INFO = "asset/common/model_info/"
 ASSET_PREFIX_IMAGE      = "asset/dx11/image/"
 
 
-class P3AGameDirIndex:
-    """Lazy multi-archive index of a Trails / ED9 game directory.
+class _GameDirIndexBase:
+    """Common machinery for game-directory archive indexing.
 
-    On construction, scans every '*.p3a' file directly inside `game_dir`
-    (top-level only -- subdirectories like 'mods/' are NOT scanned, since
-    they are typically downstream mods rather than base assets), reads
-    each archive's TOC, and merges every entry whose path lives under one
-    of the three asset prefixes we care about (model / model_info / image)
-    into a single flat dict.
+    Subclasses pick the archive format (P3A or PAC) by overriding three
+    class attributes:
+      * _ARCHIVE_EXT   -- lowercase extension, e.g. 'p3a' or 'pac'
+      * _ARCHIVE_CLASS -- a callable returning an archive reader whose
+                          surface matches `p3a_class` (read_p3a_toc(),
+                          read_file(entry, dict_or_None))
+      * _PRETTY_NAME   -- short human-readable label used in log output
 
-    Conflict policy: when the same entry path is present in more than one
-    .p3a, the LAST archive read wins (alphabetical by filename). This is
-    a deterministic but ad-hoc choice; the engine's actual load order is
-    unknown to this script. A debug log line is emitted for every
+    Construction scans every `*.<ext>` file at and (by default) below
+    `game_dir`, reads each archive's TOC, and merges every entry that
+    lives under one of the asset prefixes we care about (model /
+    model_info / image) into a single flat dict.
+
+    Conflict policy: when the same entry path is present in more than
+    one archive, the LAST archive read wins (alphabetical by relative
+    path). Engine load order is opaque to this script; the choice is
+    deterministic but ad-hoc, and a debug log line is emitted for every
     overridden entry.
 
-    No payload bytes are read at scan time -- only the TOC and (for
-    zstd-dict archives) the shared dictionary.
+    No payload bytes are read at scan time. P3A's per-archive ZSTD
+    dictionary IS read because it has to be reused at extraction time;
+    PAC has no equivalent.
+
+    Subdirectory policy: by default `_SKIP_DIRS` (case-insensitive) is
+    pruned during the recursive walk -- typically just 'mods', so a
+    user's mod folder doesn't masquerade as a vanilla asset source.
+    Pass `with_mods=True` (CLI: --with-mods) to include it. Pass
+    `recursive=False` (CLI: --no-recursive) to limit the scan to the
+    top level only, matching pre-1.x behaviour.
     """
 
-    # File patterns we deliberately skip even before touching them, because
-    # they are obviously not base-asset archives in any game version. This
-    # is a heuristic short-circuit: anything not skipped here is opened and
-    # tested by content.
-    _SKIP_DIRS = ("mods",)  # don't recurse into these subdirs
+    _ARCHIVE_EXT = None     # subclass MUST set
+    _ARCHIVE_CLASS = None   # subclass MUST set
+    _PRETTY_NAME = "archive"
 
-    def __init__(self, game_dir, progress=None):
+    # File patterns we deliberately skip even before touching them, because
+    # they are obviously not base-asset archives. Compared case-insensitively
+    # against `os.path.basename(dir)`.
+    _SKIP_DIRS = ("mods",)
+
+    def __init__(self, game_dir, progress=None, recursive=True, with_mods=False):
         self.game_dir = os.path.abspath(game_dir)
-        # rel_path (lowercased, forward-slashed) -> (p3a_path, entry, p3a_dict)
+        self.recursive = recursive
+        self.with_mods = with_mods
+        # rel_path (lowercased, forward-slashed) -> (archive_path, entry, archive_dict)
         self.entries = {}
-        # p3a_path -> (header, p3a_dict, [entries]) -- kept so debug code
-        # can introspect; not used at runtime.
+        # archive_path -> (header, archive_dict, [entries]) -- kept so debug
+        # code can introspect; not used at runtime.
         self.archives = {}
-        # archives that contributed at least one asset/* entry to the index
+        # archives that contributed at least one asset/* entry to the index.
+        # Preserves the original field name for backward compatibility.
         self.contributing_p3a = []
         self._scan(progress)
 
+    @property
+    def contributing_archives(self):
+        """Backward-compat alias for code that wants a generic name."""
+        return self.contributing_p3a
+
     def _candidate_archives(self):
-        """Return sorted list of *.p3a files at the game-dir top level."""
+        """Walk `game_dir` collecting archives matching `_ARCHIVE_EXT`.
+
+        With `recursive=True` (default), descends into subdirectories,
+        pruning `_SKIP_DIRS` (case-insensitive) unless `with_mods=True`.
+        With `recursive=False`, looks only at the top level.
+
+        Results are sorted by relative path (case-insensitive) so the
+        scan order -- and therefore the conflict resolution order --
+        is reproducible across runs."""
+        ext = "." + self._ARCHIVE_EXT.lower()
+        skip = set() if self.with_mods else {d.lower() for d in self._SKIP_DIRS}
         out = []
-        try:
-            names = os.listdir(self.game_dir)
-        except OSError:
-            return []
-        for n in names:
-            full = os.path.join(self.game_dir, n)
-            if os.path.isfile(full) and n.lower().endswith(".p3a"):
-                out.append(full)
-        out.sort(key=lambda p: os.path.basename(p).lower())
+        if self.recursive:
+            for dirpath, dirnames, filenames in os.walk(self.game_dir):
+                # Prune skip dirs in place so os.walk doesn't descend.
+                dirnames[:] = [d for d in dirnames if d.lower() not in skip]
+                for n in filenames:
+                    if n.lower().endswith(ext):
+                        out.append(os.path.join(dirpath, n))
+        else:
+            try:
+                names = os.listdir(self.game_dir)
+            except OSError:
+                return []
+            for n in names:
+                full = os.path.join(self.game_dir, n)
+                if os.path.isfile(full) and n.lower().endswith(ext):
+                    out.append(full)
+        out.sort(key=lambda p: os.path.relpath(p, self.game_dir).lower())
         return out
 
     def _scan(self, progress):
         candidates = self._candidate_archives()
-        for i, p3a_path in enumerate(candidates, 1):
+        for i, archive_path in enumerate(candidates, 1):
             if progress is not None:
-                progress(i, len(candidates), p3a_path)
+                progress(i, len(candidates), archive_path)
             try:
-                with open(p3a_path, "rb") as fh:
-                    archive = p3a_class()
+                with open(archive_path, "rb") as fh:
+                    archive = self._ARCHIVE_CLASS()
                     archive.f = fh
-                    header, entries, p3a_dict = archive.read_p3a_toc()
+                    header, entries, arc_dict = archive.read_p3a_toc()
                 if not entries:
                     continue
             except Exception as e:
                 LOG.warning("[game] could not read %s: %s",
-                            os.path.basename(p3a_path), e)
+                            os.path.basename(archive_path), e)
                 continue
 
-            self.archives[p3a_path] = (header, p3a_dict, entries)
+            self.archives[archive_path] = (header, arc_dict, entries)
             contributed = 0
             for ent in entries:
-                # P3A stores names with forward slashes in lowercase; be
-                # defensive in case some archive deviates.
+                # Both P3A and PAC store names with forward slashes; lowercase
+                # them defensively in case some archive deviates.
                 name = ent["name"].replace("\\", "/").lower()
                 if not (name.startswith(ASSET_PREFIX_MODEL)
                         or name.startswith(ASSET_PREFIX_MODEL_INFO)
@@ -2490,11 +2736,11 @@ class P3AGameDirIndex:
                     prev_path = self.entries[name][0]
                     LOG.debug("[game] entry %s overridden: %s -> %s",
                               name, os.path.basename(prev_path),
-                              os.path.basename(p3a_path))
-                self.entries[name] = (p3a_path, ent, p3a_dict)
+                              os.path.basename(archive_path))
+                self.entries[name] = (archive_path, ent, arc_dict)
                 contributed += 1
             if contributed:
-                self.contributing_p3a.append(p3a_path)
+                self.contributing_p3a.append(archive_path)
 
     # --- listing helpers (no extraction) ---
 
@@ -2531,8 +2777,8 @@ class P3AGameDirIndex:
     def list_image_index(self):
         """Return {lower_filename: lower_filename} for asset/dx11/image/*.
 
-        The mapping mirrors the on-disk index_image_dir() format. P3A names
-        are stored in lowercase, so the 'actual filename' is also lower.
+        The mapping mirrors the on-disk index_image_dir() format. Archive
+        names are stored in lowercase, so the 'actual filename' is also lower.
         """
         idx = {}
         for name in self.entries:
@@ -2555,18 +2801,82 @@ class P3AGameDirIndex:
         record = self.entries.get(key)
         if record is None:
             raise FileNotFoundError(rel_path)
-        p3a_path, entry, p3a_dict = record
+        archive_path, entry, arc_dict = record
         os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
-        with open(p3a_path, "rb") as fh:
-            archive = p3a_class()
+        with open(archive_path, "rb") as fh:
+            archive = self._ARCHIVE_CLASS()
             archive.f = fh
-            data = archive.read_file(entry, p3a_dict)
+            data = archive.read_file(entry, arc_dict)
         if not data:
             raise IOError(
                 "extraction of {} from {} returned empty data (corrupt?)".format(
-                    rel_path, os.path.basename(p3a_path)))
+                    rel_path, os.path.basename(archive_path)))
         with open(target_path, "wb") as fh2:
             fh2.write(data)
+
+
+class P3AGameDirIndex(_GameDirIndexBase):
+    """Lazy multi-archive index of a Trails / ED9 (Kuro / CS) game directory.
+    Reads `*.p3a` files. See _GameDirIndexBase for behaviour."""
+    _ARCHIVE_EXT = "p3a"
+    _ARCHIVE_CLASS = p3a_class
+    _PRETTY_NAME = "P3A"
+
+
+class PacGameDirIndex(_GameDirIndexBase):
+    """Lazy multi-archive index of a Trails in the Sky 1st Chapter game
+    directory. Reads `*.pac` files (typically under `<game>/pac/steam/`).
+    See _GameDirIndexBase for behaviour."""
+    _ARCHIVE_EXT = "pac"
+    _ARCHIVE_CLASS = pac_class
+    _PRETTY_NAME = "PAC"
+
+
+def _detect_game_dir_format(game_dir, recursive=True, with_mods=False):
+    """Look at `game_dir` and decide which archive format the install uses.
+
+    Returns one of:
+      'p3a'   -- Kuro / ED9 / CS install (only .p3a found)
+      'pac'   -- Sky 1st install (only .pac found)
+      'mixed' -- both found, caller must disambiguate
+      'none'  -- neither (probably wrong directory)
+
+    Recursive scan respects the same skip-list as the index classes."""
+    skip = set() if with_mods else {"mods"}
+    has_p3a = False
+    has_pac = False
+    if recursive:
+        for dirpath, dirnames, filenames in os.walk(game_dir):
+            dirnames[:] = [d for d in dirnames if d.lower() not in skip]
+            for n in filenames:
+                low = n.lower()
+                if low.endswith(".p3a"):
+                    has_p3a = True
+                elif low.endswith(".pac"):
+                    has_pac = True
+                if has_p3a and has_pac:
+                    return "mixed"
+    else:
+        try:
+            names = os.listdir(game_dir)
+        except OSError:
+            return "none"
+        for n in names:
+            full = os.path.join(game_dir, n)
+            if not os.path.isfile(full):
+                continue
+            low = n.lower()
+            if low.endswith(".p3a"):
+                has_p3a = True
+            elif low.endswith(".pac"):
+                has_pac = True
+    if has_p3a and has_pac:
+        return "mixed"
+    if has_p3a:
+        return "p3a"
+    if has_pac:
+        return "pac"
+    return "none"
 
 
 def _materialize_game_subset(game_idx, selected_mdl_rel_paths, scratch_dir):
@@ -4182,7 +4492,10 @@ def parse_args(argv=None):
         prog="kuro_mdl_rename",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Produce renamed mod .p3a archives for Kuro no Kiseki / ED9 games.\n"
+            "Produce renamed mod archives for Trails-series games.\n"
+            "Two engines / archive formats are supported:\n"
+            "  * Kuro no Kiseki / ED9 / CS / Trails Beyond -- .p3a archives\n"
+            "  * Trails in the Sky 1st Chapter           -- .pac archives\n"
             "The renaming is per-mdl and isolates each model's textures into a\n"
             "private namespace so mods that touch overlapping vanilla assets\n"
             "never overwrite each other.\n"
@@ -4191,21 +4504,26 @@ def parse_args(argv=None):
             "----------------\n"
             "Point the script at the game's install directory with --game;\n"
             "the interactive picker opens by default and lets you choose\n"
-            "which .mdl files to mod, then packages them into a single mod\n"
-            ".p3a archive in the directory the script was run from:\n"
+            "which .mdl files to mod, then packages them into the format the\n"
+            "engine expects (.p3a for Kuro / ED9, directory tree or .pac for\n"
+            "Sky 1st), in the directory the script was run from:\n"
             "\n"
             "    py kuro_mdl_rename.py --game \"D:\\Path\\To\\GameInstall\" --apply\n"
             "\n"
             "If the script lives inside the game folder, --game alone (no\n"
-            "path) uses the script's own directory.\n"
+            "path) uses the script's own directory. The scan recurses into\n"
+            "subdirectories by default (so the Sky 1st pac/steam/ layout is\n"
+            "handled transparently); use --no-recursive to limit it. The\n"
+            "'mods/' subfolder is skipped by default -- pass --with-mods to\n"
+            "include it.\n"
             "\n"
             "ALL SUPPORTED SOURCES\n"
             "---------------------\n"
-            "  * --game [PATH]   Trails / ED9 GAME DIRECTORY (the primary mode\n"
-            "                    described above) -- a folder with many .p3a\n"
-            "                    archives at top level. The script reads each\n"
-            "                    archive's TOC and presents the discovered\n"
-            "                    .mdl files for selection;\n"
+            "  * --game [PATH]   GAME INSTALL DIRECTORY (the primary mode\n"
+            "                    described above). Auto-detected as either:\n"
+            "                      .p3a (Kuro / ED9 / CS / Trails Beyond), or\n"
+            "                      .pac (Trails in the Sky 1st Chapter,\n"
+            "                            archives typically under pac/steam/);\n"
             "  * <project>       a project directory tree (the layout under\n"
             "                    <project>/ with asset/common/model/,\n"
             "                    asset/common/model_info/, asset/dx11/image/,\n"
@@ -4214,8 +4532,13 @@ def parse_args(argv=None):
             "                    extension and extracted to a temporary\n"
             "                    working directory).\n"
             "\n"
-            "Output is either a directory tree (default for project / .p3a\n"
-            "input) or a single .p3a archive (--p3a; default for --game).\n"
+            "Output formats:\n"
+            "  --p3a     pack as a .p3a archive (Kuro / ED9; default in --game\n"
+            "            mode when the source is P3A)\n"
+            "  --pac     pack as a .pac archive (Trails in the Sky 1st)\n"
+            "  (none)    write a directory tree (default in --game mode when\n"
+            "            the source is PAC, and the default everywhere else\n"
+            "            unless --p3a or --pac is given)\n"
             "\n"
             "SUBSET SELECTION\n"
             "----------------\n"
@@ -4258,13 +4581,18 @@ def parse_args(argv=None):
             "Primary workflow\n"
             "----------------\n"
             "Drop the script anywhere, point it at the game install directory.\n"
-            "The interactive picker opens by default; the resulting mod .p3a\n"
-            "is written next to where you ran the script:\n"
+            "The interactive picker opens by default; the resulting mod is\n"
+            "written next to where you ran the script (a .p3a for Kuro / ED9,\n"
+            "a directory tree for Sky 1st by default):\n"
             "    py kuro_mdl_rename.py --game \"D:\\Steam\\...\\TrailsXYZ\" --apply\n"
+            "    py kuro_mdl_rename.py --game \"D:\\Steam\\...\\Trails in the Sky 1st\" --apply\n"
             "\n"
             "If the script lives inside the game folder itself, --game alone\n"
             "(no path) uses the script's own directory:\n"
             "    py kuro_mdl_rename.py --game --apply\n"
+            "\n"
+            "Sky 1st with .pac archive output instead of a directory tree:\n"
+            "    py kuro_mdl_rename.py --game \"D:\\Steam\\...\\Trails in the Sky 1st\" --pac --apply\n"
             "\n"
             "Game-directory mode with non-interactive subset selection:\n"
             "    py kuro_mdl_rename.py --game --only \"chr5113_c0?\" --apply\n"
@@ -4273,6 +4601,10 @@ def parse_args(argv=None):
             "\n"
             "Game-directory mode, process every discovered .mdl (no picker):\n"
             "    py kuro_mdl_rename.py --game --select-all --apply\n"
+            "\n"
+            "Game-directory scan tweaks:\n"
+            "    py kuro_mdl_rename.py --game --no-recursive --apply  # top-level archives only\n"
+            "    py kuro_mdl_rename.py --game --with-mods --apply     # also scan mods/\n"
             "\n"
             "Other source modes\n"
             "------------------\n"
@@ -4358,6 +4690,7 @@ def parse_args(argv=None):
             "      --rename + --non-interactive\n"
             "      --select-all + --only / --only-from\n"
             "      --select-all + --select  (the latter is now a no-op)\n"
+            "      --p3a + --pac  (different output archive formats)\n"
             "* The log file is always written next to this Python script,\n"
             "  not into the output directory. Override with --log."
         ),
@@ -4369,25 +4702,54 @@ def parse_args(argv=None):
                         "exactly one nested project folder (zip-extraction layout). "
                         "Ignored when --game is active.")
     p.add_argument("--game", nargs="?", const="", default=None, metavar="GAMEDIR",
-                   help="*** PRIMARY MODE *** -- treat the source as a Trails / ED9 "
-                        "game directory. The interactive picker opens by default; the "
-                        "canonical workflow is 'py kuro_mdl_rename.py --game \"PATH\" "
-                        "--apply'. The directory must contain many .p3a archives at "
-                        "its top level, each carrying part of the asset tree "
-                        "(asset/common/model/, asset/common/model_info/, "
-                        "asset/dx11/image/). The script auto-detects which .p3a files "
-                        "contribute to those folders by reading their tables of "
-                        "contents (no extraction at scan time), presents the discovered "
-                        ".mdl files in the picker (or applies --only / --select-all if "
-                        "passed), then extracts ONLY the selected mdls + their .mi "
-                        "side-cars + the images they actually reference into a transient "
-                        "scratch directory. From there the existing renaming pipeline "
-                        "runs as usual and the result defaults to a single .p3a archive "
-                        "output. If --game is given without a path, the directory "
-                        "containing this script is used (so you can drop the script "
-                        "into the game folder and run 'py kuro_mdl_rename.py --game'); "
-                        "if a path follows, that path is used. The positional "
-                        "'project' argument is ignored when --game is active.")
+                   help="*** PRIMARY MODE *** -- treat the source as a game install "
+                        "directory. Auto-detects the archive format: '.p3a' for "
+                        "Kuro / ED9 / CS / Trails Beyond, or '.pac' for Trails in "
+                        "the Sky 1st Chapter (typically under <game>/pac/steam/). "
+                        "The interactive picker opens by default; the canonical "
+                        "workflow is 'py kuro_mdl_rename.py --game \"PATH\" --apply'. "
+                        "The script auto-detects which archives contribute to "
+                        "asset/common/model/, asset/common/model_info/, and "
+                        "asset/dx11/image/ by reading their tables of contents "
+                        "(no extraction at scan time), presents the discovered "
+                        ".mdl files in the picker (or applies --only / --select-all "
+                        "if passed), then extracts ONLY the selected mdls + their "
+                        ".mi side-cars + the images they actually reference into "
+                        "a transient scratch directory. The renaming pipeline runs "
+                        "as usual; output defaults to a single .p3a archive (Kuro) "
+                        "or directory tree (Sky 1st), see --p3a / --pac. If --game "
+                        "is given without a path, the directory containing this "
+                        "script is used (drop the script into the game folder and "
+                        "run 'py kuro_mdl_rename.py --game'). The positional "
+                        "'project' argument is ignored when --game is active. By "
+                        "default the scan recurses into subdirectories (so an "
+                        "install with archives under e.g. pac/steam/ is handled "
+                        "transparently); use --no-recursive to limit the scan to "
+                        "the top level only. The 'mods' subdirectory is skipped "
+                        "by default; use --with-mods to include it.")
+    p.add_argument("--no-recursive", dest="recursive",
+                   action="store_false", default=True,
+                   help="In --game mode, only scan archives at the top level of the "
+                        "game directory (the pre-1.x behaviour). Default is to "
+                        "descend into subdirectories so installs that organise "
+                        "archives under e.g. 'pac/steam/' (Trails in the Sky 1st) "
+                        "are handled transparently. The 'mods' subfolder is always "
+                        "skipped unless --with-mods is also given. Has no effect "
+                        "outside --game mode.")
+    p.add_argument("--with-mods", dest="with_mods",
+                   action="store_true", default=False,
+                   help="In --game mode, also scan archives under any 'mods' "
+                        "subdirectory. By default 'mods' is skipped to avoid "
+                        "confusing user-installed mods with vanilla base assets. "
+                        "Has no effect outside --game mode.")
+    p.add_argument("--pac", dest="output_pac",
+                   action="store_true", default=False,
+                   help="Pack the output as a `.pac` archive (FPAC format used by "
+                        "Trails in the Sky 1st Chapter). Mutually exclusive with "
+                        "--p3a. In --game mode this is selected automatically when "
+                        "the source format is PAC, but you can still pass it "
+                        "explicitly to override the directory-tree default for "
+                        "Sky 1st sources.")
     p.add_argument("--prefix", default=None,
                    help="Prefix added to renamed mdl files (default: 'mod_'). "
                         "Ignored under --rename. Empty is allowed.")
@@ -4536,19 +4898,32 @@ def _interactive_collect_prefix_suffix(prefix_default, suffix_default):
         prefix_default, suffix_default = prefix or prefix_default, suffix or suffix_default
 
 
-def _interactive_collect_output_apply(default_dir_output, default_p3a_output,
-                                       current_apply, current_keep, current_p3a):
-    """Prompt for the output mode (dir vs p3a), the output path, the keep
-    flag and the apply confirmation. Returns (output, apply, keep, p3a)."""
-    p3a_out = prompt_yes_no(
-        "Pack output as a P3A archive (instead of a directory tree)? "
-        "(default no): ",
-        default=bool(current_p3a),
+def _interactive_collect_output_apply(default_dir_output, default_archive_output,
+                                       current_apply, current_keep, current_archive,
+                                       archive_format="p3a"):
+    """Prompt for the output mode (dir vs archive), the output path, the keep
+    flag and the apply confirmation. Returns (output, apply, keep, archive_flag).
+
+    `archive_format` selects which archive packaging is offered:
+      * 'p3a' -- Kuro / ED9 / CS / Trails Beyond (default)
+      * 'pac' -- Trails in the Sky 1st Chapter
+
+    The wording, default-yes/no, and file extension are adjusted accordingly so
+    a Sky 1st run never sees a P3A prompt and vice versa."""
+    fmt_label = "P3A" if archive_format == "p3a" else "PAC"
+    fmt_ext = "." + archive_format
+    archive_out = prompt_yes_no(
+        "Pack output as a {} archive (instead of a directory tree)? "
+        "(default {}): ".format(fmt_label,
+                                "yes" if current_archive else "no"),
+        default=bool(current_archive),
     )
-    if p3a_out:
-        output = prompt_with_default("Output P3A archive path: ", default_p3a_output)
-        if not output.lower().endswith(".p3a"):
-            output = output + ".p3a"
+    if archive_out:
+        output = prompt_with_default(
+            "Output {} archive path: ".format(fmt_label),
+            default_archive_output)
+        if not output.lower().endswith(fmt_ext):
+            output = output + fmt_ext
     else:
         output = prompt_with_default("Output directory: ", default_dir_output)
     keep = prompt_yes_no(
@@ -4557,11 +4932,11 @@ def _interactive_collect_output_apply(default_dir_output, default_p3a_output,
         default=bool(current_keep),
     )
     if current_apply:
-        return output, True, keep, p3a_out
+        return output, True, keep, archive_out
     apply_now = prompt_yes_no(
         "Apply changes now? (default no = dry-run only): ", default=False
     )
-    return output, apply_now, keep, p3a_out
+    return output, apply_now, keep, archive_out
 
 
 def _interactive_rename_each(plans):
@@ -4676,6 +5051,15 @@ def main(argv=None):
         )
         return 2
 
+    # Mutex: --p3a and --pac are different output archive formats. The script
+    # can't pack both at once.
+    if args.p3a and args.output_pac:
+        sys.stderr.write(
+            "ERROR: --p3a (Kuro / ED9 archive format) and --pac (Trails in "
+            "the Sky 1st archive format) are mutually exclusive output "
+            "formats. Pick one.\n")
+        return 2
+
     # In --non-interactive mode WITHOUT any selection flag, the picker can't
     # run (it needs a TTY) and there's no --only filter to apply. The legacy
     # behaviour was "process every mdl", so silently imply --select-all.
@@ -4713,32 +5097,73 @@ def main(argv=None):
             _dim(game_dir_origin),
             _cyan(game_dir)))
 
-        def _scan_progress(i, total, p3a_path):
+        # Auto-detect which archive format the install uses. Sky 1st ships
+        # PAC; Kuro / ED9 ships P3A. If both extensions are present we ask
+        # the user (or, in --non-interactive mode, prefer P3A which is the
+        # original target format). The scan respects --no-recursive and
+        # --with-mods.
+        fmt = _detect_game_dir_format(
+            game_dir, recursive=args.recursive, with_mods=args.with_mods)
+        if fmt == "none":
+            sys.stderr.write(
+                _red("ERROR: ") + "no .p3a or .pac archives found under "
+                + _cyan(game_dir) + ".\n"
+                + _dim("  Is this really a game install directory? "
+                "Try --no-recursive or --with-mods if archives live "
+                "in unusual subdirectories.") + "\n")
+            return 1
+        if fmt == "mixed":
+            # Both extensions present. Pick PAC if the user passed --pac
+            # explicitly, otherwise default to P3A and warn.
+            if args.output_pac:
+                fmt = "pac"
+                sys.stdout.write(
+                    "  " + _yellow("Both .p3a and .pac archives present; "
+                    "using PAC (--pac was passed).") + "\n")
+            else:
+                fmt = "p3a"
+                sys.stdout.write(
+                    "  " + _yellow("Both .p3a and .pac archives present; "
+                    "preferring P3A. Pass --pac to choose PAC instead.") + "\n")
+        IndexClass = P3AGameDirIndex if fmt == "p3a" else PacGameDirIndex
+
+        def _scan_progress(i, total, archive_path):
+            rel = os.path.relpath(archive_path, game_dir)
             sys.stdout.write("  " + _dim("[{:>2}/{:>2}] reading TOC: ".format(i, total))
-                             + _cyan(os.path.basename(p3a_path)) + "\n")
+                             + _cyan(rel) + "\n")
             sys.stdout.flush()
 
         try:
-            game_idx = P3AGameDirIndex(game_dir, progress=_scan_progress)
+            game_idx = IndexClass(
+                game_dir,
+                progress=_scan_progress,
+                recursive=args.recursive,
+                with_mods=args.with_mods,
+            )
         except Exception as e:
             sys.stderr.write("ERROR: failed to scan game directory: {}\n".format(e))
             return 1
 
-        if not game_idx.contributing_p3a:
+        if not game_idx.contributing_archives:
+            game_kind = "Sky 1st" if fmt == "pac" else "Trails / ED9"
+            ext = "." + IndexClass._ARCHIVE_EXT
+            extra = "" if args.with_mods else (
+                " (Mod archives under 'mods/' subdirectories are NOT scanned "
+                "by default; pass --with-mods to include them.)")
             sys.stderr.write(
-                "ERROR: no .p3a archive in {} contributes asset/common/model/, "
+                "ERROR: no {} archive in {} contributes asset/common/model/, "
                 "asset/common/model_info/, or asset/dx11/image/ entries.\n"
-                "Is this really a Trails / ED9 game directory? "
-                "(Mod archives in subdirectories like 'mods/' are NOT scanned -- "
-                "only top-level .p3a files.)\n".format(game_dir))
+                "Is this really a {} game directory?{}\n".format(
+                    ext, game_dir, game_kind, extra))
             return 1
 
         n_mdl = len(game_idx.list_mdls())
         n_mi = len(game_idx.list_mi_index())
         n_img = len(game_idx.list_image_index())
         sys.stdout.write(
-            "  " + _bold(_green(str(len(game_idx.contributing_p3a))))
-            + " contributing archive(s); virtual index: "
+            "  " + _bold(_green(str(len(game_idx.contributing_archives))))
+            + " contributing " + _bold(IndexClass._PRETTY_NAME)
+            + " archive(s); virtual index: "
             + _bold(str(n_mdl)) + " mdl, "
             + _bold(str(n_mi)) + " mi, "
             + _bold(str(n_img)) + " image.\n")
@@ -4748,17 +5173,34 @@ def main(argv=None):
                 "ERROR: game index built but contains 0 .mdl files. Nothing to do.\n")
             return 1
 
-        # In game-dir mode the output defaults to a P3A archive (the user's
-        # workflow is "produce a single mod .p3a"). The user may still flip
-        # this in the interactive prompt or by leaving --p3a unset and
-        # passing --output that ends in something else, but the SENSIBLE
-        # default is on. We only flip it when not explicitly set.
-        if args.p3a is None and args.non_interactive:
-            args.p3a = True
-        elif args.p3a is None:
-            # Interactive mode: pre-tick the P3A choice in the prompt by
-            # treating it as "currently True" (the prompt's default-yes).
-            args.p3a = True
+        # In game-dir mode the default output type depends on the source
+        # archive format:
+        #   * P3A source -> output a P3A archive (--p3a default-on)
+        #   * PAC source -> output a directory tree by default; the user
+        #                   can opt into a .pac archive with --pac.
+        # The user may still flip this in the interactive prompt or by
+        # passing --p3a / --pac explicitly.
+        if fmt == "p3a":
+            if args.p3a is None and args.non_interactive:
+                args.p3a = True
+            elif args.p3a is None:
+                # Interactive mode: pre-tick the P3A choice (the
+                # prompt below treats this as default-yes).
+                args.p3a = True
+        else:
+            # PAC source. Don't auto-enable --p3a (Sky 1st can't read it).
+            # If the user passed --pac, that's the archive output mode;
+            # otherwise we leave --p3a as None and the directory-tree
+            # default applies.
+            if args.p3a is True:
+                sys.stderr.write(
+                    "ERROR: --p3a was passed but the source is a Trails in "
+                    "the Sky 1st (PAC) install. Sky 1st cannot read .p3a "
+                    "archives. Drop --p3a (output as a directory tree) or "
+                    "pass --pac instead.\n")
+                return 1
+            if args.p3a is None:
+                args.p3a = False  # directory-tree default for PAC sources
 
         # Set up a transient scratch directory; _run_main fills it lazily.
         # main()'s finally block cleans it up on every exit path.
@@ -4945,9 +5387,10 @@ def _print_no_source_banner(args):
         "Did you mean to use --game mode?")) + " "
         + _dim("(the primary workflow)") + "\n")
     sys.stderr.write(_dim(
-        "  --game points at the WHOLE Trails / ED9 game install (the\n"
-        "  folder with many top-level .p3a archives) and lets you build\n"
-        "  a mod by picking the .mdl files interactively:\n"))
+        "  --game points at the WHOLE game install directory (the folder\n"
+        "  with the .p3a archives for Kuro / ED9, or with the pac/steam/\n"
+        "  folder for Trails in the Sky 1st) and lets you build a mod by\n"
+        "  picking the .mdl files interactively:\n"))
     sys.stderr.write("\n")
     sys.stderr.write("    " + _bold(_green(
         "py kuro_mdl_rename.py --game \"D:\\Steam\\...\\TrailsXYZ\" --apply")) + "\n")
@@ -5206,20 +5649,67 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
         base = os.path.basename(os.path.abspath(src_root).rstrip(os.sep))
         return os.path.join(parent, base + "_modded.p3a")
 
+    def _default_pac_output(src_root, src_p3a):
+        """Mirror of _default_p3a_output for PAC archive packaging.
+        Used when --pac is on (Sky 1st mod output)."""
+        if game_idx is not None:
+            return os.path.join(os.getcwd(), "kuro_mdl_rename_output.pac")
+        if src_p3a:
+            parent = os.path.dirname(os.path.abspath(src_p3a))
+            base = os.path.splitext(os.path.basename(src_p3a))[0]
+            return os.path.join(parent, base + "_modded.pac")
+        parent = os.path.dirname(os.path.abspath(src_root))
+        base = os.path.basename(os.path.abspath(src_root).rstrip(os.sep))
+        return os.path.join(parent, base + "_modded.pac")
+
     def _default_output_dir_local(default_src):
         if game_idx is not None:
             return os.path.join(os.getcwd(), "kuro_mdl_rename_output")
         return _default_output_dir(default_src)
 
+    # Decide which archive format the interactive prompt should offer.
+    # In --game mode this is dictated by the source: PAC source -> .pac
+    # output, P3A source -> .p3a output, no choice needed (the engine
+    # would refuse the wrong one). Outside --game mode the project /
+    # single-archive input doesn't constrain it; default to P3A which
+    # is what the original Kuro workflow produces.
+    if isinstance(game_idx, PacGameDirIndex):
+        prompt_archive_format = "pac"
+    else:
+        prompt_archive_format = "p3a"
+
     if interactive:
         try:
             default_dir_out = args.output or _default_output_dir_local(src_p3a_path or src_project)
-            default_p3a_out = (args.output if args.output and args.output.lower().endswith(".p3a")
-                               else _default_p3a_output(src_project, src_p3a_path))
-            args.output, args.apply, args.keep, args.p3a = _interactive_collect_output_apply(
-                default_dir_out, default_p3a_out,
-                bool(args.apply), bool(args.keep), bool(args.p3a),
-            )
+            if prompt_archive_format == "pac":
+                # Use the PAC default path; existing args.output is only
+                # reused if it already has the .pac extension.
+                default_archive_out = (
+                    args.output if args.output and args.output.lower().endswith(".pac")
+                    else _default_pac_output(src_project, src_p3a_path))
+                # Pre-tick "yes, archive output" if the user already
+                # passed --pac, otherwise default-no (Sky 1st canonical
+                # output is a directory tree).
+                current_archive = bool(args.output_pac)
+            else:
+                default_archive_out = (
+                    args.output if args.output and args.output.lower().endswith(".p3a")
+                    else _default_p3a_output(src_project, src_p3a_path))
+                current_archive = bool(args.p3a)
+            args.output, args.apply, args.keep, archive_flag = (
+                _interactive_collect_output_apply(
+                    default_dir_out, default_archive_out,
+                    bool(args.apply), bool(args.keep), current_archive,
+                    archive_format=prompt_archive_format,
+                ))
+            # Map the generic archive_flag back onto the format-specific
+            # argparse field. The other field stays False.
+            if prompt_archive_format == "pac":
+                args.output_pac = archive_flag
+                args.p3a = False
+            else:
+                args.p3a = archive_flag
+                args.output_pac = False
         except (KeyboardInterrupt, EOFError):
             sys.stderr.write("\nCancelled.\n")
             return 130
@@ -5231,8 +5721,13 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
         if args.p3a is None:
             args.p3a = False
         if args.output is None:
-            args.output = (_default_p3a_output(src_project, src_p3a_path)
-                           if args.p3a else _default_output_dir_local(src_p3a_path or src_project))
+            if args.p3a:
+                args.output = _default_p3a_output(src_project, src_p3a_path)
+            elif args.output_pac:
+                args.output = _default_pac_output(src_project, src_p3a_path)
+            else:
+                args.output = _default_output_dir_local(
+                    src_p3a_path or src_project)
 
     # P3A compression / version defaults (used only when args.p3a is True).
     if args.p3a_compression is None:
@@ -5240,16 +5735,24 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
     if args.p3a_version is None:
         args.p3a_version = "1100"
 
-    # When packing a P3A, the user-supplied "output" is the .p3a file;
-    # internally we still build a working directory, then pack it, then
-    # remove the working directory.
+    # When packing an archive (P3A or PAC), the user-supplied "output" is
+    # the archive file path; internally we still build a working directory,
+    # then pack it, then remove the working directory.
     if args.p3a:
         final_p3a_path = os.path.abspath(args.output)
         if not final_p3a_path.lower().endswith(".p3a"):
             final_p3a_path = final_p3a_path + ".p3a"
         out_project = final_p3a_path + "_workdir"
+        final_pac_path = None
+    elif args.output_pac:
+        final_pac_path = os.path.abspath(args.output)
+        if not final_pac_path.lower().endswith(".pac"):
+            final_pac_path = final_pac_path + ".pac"
+        out_project = final_pac_path + "_workdir"
+        final_p3a_path = None
     else:
         final_p3a_path = None
+        final_pac_path = None
         out_project = os.path.abspath(args.output)
 
     # ---- Step 6: set up logging (log file lives next to this script) ------
@@ -5265,8 +5768,10 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
     if game_idx is not None:
         LOG.info("Source             : %s %s",
                  _cyan(game_idx.game_dir),
-                 _dim("(game directory; {} contributing .p3a, lazy materialised)".format(
-                     len(game_idx.contributing_p3a))))
+                 _dim("(game directory; {} contributing {} archive(s), "
+                      "lazy materialised)".format(
+                     len(game_idx.contributing_archives),
+                     game_idx._PRETTY_NAME)))
     elif src_p3a_path:
         LOG.info("Source             : %s %s",
                  _cyan(src_p3a_path), _dim("(P3A archive, extracted to scratch)"))
@@ -5277,6 +5782,10 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
                  _cyan(final_p3a_path), _dim("(P3A archive)"))
         LOG.info("  P3A compression  : %s", _green(args.p3a_compression))
         LOG.info("  P3A version      : %s", _green(args.p3a_version))
+        LOG.info("  working directory: %s", _dim(out_project))
+    elif args.output_pac:
+        LOG.info("Output             : %s %s",
+                 _cyan(final_pac_path), _dim("(PAC archive, FPAC)"))
         LOG.info("  working directory: %s", _dim(out_project))
     else:
         LOG.info("Output project     : %s", _cyan(out_project))
@@ -5455,6 +5964,35 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
                       out_project)
             failures += 1
 
+    # --pac OUTPUT: pack the working directory into a PAC archive (FPAC,
+    # uncompressed). Used for Trails in the Sky 1st Chapter mods that ship
+    # as a single .pac the engine can load directly. Skipped on dry-run,
+    # skipped on failure.
+    if args.output_pac and args.apply and failures == 0:
+        LOG.info("")
+        LOG.info(_bold(_magenta("=" * 8 + " PACK: building PAC archive " + "=" * 35)))
+        LOG.info("[pack] source workdir : %s", _dim(out_project))
+        LOG.info("[pack] target archive : %s", _cyan(final_pac_path))
+        LOG.info("[pack] format         : %s", _green("FPAC (uncompressed)"))
+
+        def _pac_progress(i, total, rel):
+            if i == 1 or i == total or i % max(1, total // 20) == 0:
+                LOG.info("[pack] %s",
+                         _dim("[{:>4}/{:>4}] {}".format(i, total, rel)))
+
+        try:
+            _pac_pack_directory(out_project, final_pac_path,
+                                progress=_pac_progress)
+            LOG.info("[pack] %s -> %s",
+                     _bold(_green("OK")), _cyan(final_pac_path))
+            shutil.rmtree(out_project, ignore_errors=True)
+            LOG.info("[pack] removed working directory")
+        except Exception as e:
+            LOG.exception("[pack] FAILED: %s", e)
+            LOG.error("[pack] working directory left in place for inspection: %s",
+                      out_project)
+            failures += 1
+
     LOG.info("")
     LOG.info(_bold(_cyan("=" * 72)))
     if failures:
@@ -5464,6 +6002,9 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
         if args.p3a:
             LOG.info("%s Output P3A archive written to: %s",
                      _bold(_green("Done.")), _cyan(final_p3a_path))
+        elif args.output_pac:
+            LOG.info("%s Output PAC archive written to: %s",
+                     _bold(_green("Done.")), _cyan(final_pac_path))
         else:
             LOG.info("%s Output project written to: %s",
                      _bold(_green("Done.")), _cyan(out_project))
@@ -5472,6 +6013,9 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
         if args.p3a:
             LOG.info("%s (dry-run: would have produced P3A: %s)",
                      _bold(_cyan("Done.")), _dim(final_p3a_path))
+        elif args.output_pac:
+            LOG.info("%s (dry-run: would have produced PAC: %s)",
+                     _bold(_cyan("Done.")), _dim(final_pac_path))
         else:
             LOG.info("%s (dry-run: would have produced directory: %s)",
                      _bold(_cyan("Done.")), _dim(out_project))
