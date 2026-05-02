@@ -1209,7 +1209,16 @@ Total: 4 entries in 2 file(s)
 
 The script accepts three different kinds of input and converges them onto a common per-mdl renaming pipeline. The richest source mode is `--game [PATH]` — a Trails / ED9 install directory. In that mode the script does **not** extract the entire game; it walks every `.p3a` archive at the top level of the directory and reads only their **table of contents** through `P3AGameDirIndex`. Each TOC tells the script which entries an archive contributes to `asset/common/model/`, `asset/common/model_info/`, and `asset/dx11/image/`. The union of those entries is the set of `.mdl`, `.mi`, and image files the renaming pipeline can later draw on. No file bodies are decompressed during scan, so even installations with tens of thousands of entries open in seconds.
 
-After the scan, the script presents the discovered `.mdl` files for selection. Selection is one of three forms: `--only NAMES` / `--only-from FILE` (CLI lists, comma-separated names or globs, with `fnmatch` syntax — `*`, `?`, `[abc]` — and case-insensitive matching), `--select` (interactive picker that scales to thousands of items: display filter `/<glob>`, paging `list [N]`, glob-add, `add` / `remove` / `show` / `clear` / `done` / `quit` / `help`), or — by default — every discovered mdl. Once the subset is fixed, the script materializes ONLY those mdls plus their `.mi` side-cars into a transient scratch directory under the script's working area. Image references inside each mdl's material data are then resolved against the same game index, and only the actually referenced images are extracted from the appropriate `.p3a` archives. The game directory itself is never written to.
+After the scan, the script presents the discovered `.mdl` files for selection. Selection has four forms:
+
+- **Interactive picker (the default)** — runs whenever no other selection flag is given. Two modes inside the picker, freely interchangeable:
+  - **Command mode** — text prompts: display filter `/<glob>`, paging `list [N]`, glob-add, `add` / `remove` / `show` / `clear` / `done` / `quit` / `help`.
+  - **Cursor mode** — Total-Commander-style TUI; type `pick` (or `i`) to enter. Arrow keys move, **Space** toggles, **Insert** toggles + advances (TC convention), `g`/`G` add/remove by glob, `/` filter, `?` / `n` / `N` substring search, `a` toggle-all-in-view, `c` clear. **Enter** / **Esc** return to command mode (selection preserved); **`q`** aborts. Sub-prompts (`/`, `?`, `g`, `G`) pre-fill with the previous pattern, fully editable.
+- `--only NAMES` / `--only-from FILE` — CLI lists, comma-separated names or globs (`fnmatch` syntax: `*`, `?`, `[abc]`; case-insensitive). Skips the picker.
+- `--select-all` — process every discovered `.mdl`. Skips the picker. This was the historical default before the picker became interactive-by-default.
+- `--non-interactive` (with no other selection flag) — implies `--select-all` automatically (a non-interactive run can't open a picker).
+
+Once the subset is fixed, the script materializes ONLY those mdls plus their `.mi` side-cars into a transient scratch directory under the script's working area. Image references inside each mdl's material data are then resolved against the same game index, and only the actually referenced images are extracted from the appropriate `.p3a` archives. The game directory itself is never written to.
 
 For project-directory and single-`.p3a` source modes the same selection logic applies, but the input data is already on disk (project layout) or unpacks fully to a working directory (single archive).
 
@@ -1220,6 +1229,8 @@ After the image copies are materialized, the script patches both texture-name ca
 The output is either a directory tree (default for project / single-archive input) or a `.p3a` archive (`--p3a`; default for `--game` mode). When packing as `.p3a`, existing entries pulled from the source keep their original `cmp_type` verbatim — only the renamed mdls and renamed images go through the chosen `--p3a-compression`. Both archive versions `1100` and `1200` are supported, and an existing per-archive ZSTD training dictionary is preserved on output. The default output path in `--game` mode is `<cwd>/kuro_mdl_rename_output.p3a` — the directory the script was run from. This is deliberate: dropping a generated mod next to vanilla `.p3a` files inside the game directory is risky, so the default keeps it separate.
 
 The whole run is **dry-run by default**. The full per-mdl plan is printed (renamed mdls, per-mdl image copies, missing references) so it can be reviewed before passing `--apply`. The script is also fully cleanup-safe: every transient scratch directory is removed on success, error, or `Ctrl+C` via a top-level `try / finally`.
+
+When the script is run with no path argument in a directory that contains neither an `asset/` tree nor any `.p3a` files, it does **not** emit a bare error message. Instead it prints a yellow warning banner explaining what the user actually attempted (single-project / single-archive mode), suggests the `--game` workflow as the most likely intent, and offers ready-to-paste command examples. The actual directory listing is shown last in dim text so it does not compete with the actionable hints.
 
 #### Source Modes
 
@@ -1250,17 +1261,32 @@ POSITIONAL:
 GAME-DIRECTORY MODE (PRIMARY):
   --game [GAMEDIR]         Treat source as a Trails / ED9 game install.
                            Without a path: uses the script's own directory.
-                           Combine with --select for the canonical workflow.
+                           Canonical workflow: --game "PATH" --apply
+                           (the picker opens by default; no --select needed).
 
-SUBSET SELECTION (mutually exclusive with each other where noted):
-  --select                 Interactive picker. Mutually exclusive with
-                           --non-interactive and with --only / --only-from.
+SUBSET SELECTION:
+  (none of the flags below) Default: open the interactive picker. The
+                           picker is text-driven by default and offers a
+                           full-screen Total-Commander-style cursor mode
+                           (type 'pick' or 'i' to enter it). Selection is
+                           preserved across mode switches; type 'done' in
+                           the command-mode prompt to accept and continue.
+  --select-all             Skip the picker; process every discovered .mdl.
+                           This was the legacy default before the picker
+                           became interactive-by-default. Mutually exclusive
+                           with --only / --only-from.
   --only NAMES             Comma-separated mdl basenames or globs
                            (repeatable). Trailing .mdl is optional.
                            Examples: chr0001,chr0002      "chr*_c01"
                                       chr*_c??             "*_c0[12]"
                                       all
+                           Skips the picker.
   --only-from FILE         One name/glob per line, '#' starts a comment.
+                           Skips the picker. Combined with --only when both
+                           are given.
+  --select                 DEPRECATED no-op. The picker is now the default
+                           when no other selection flag is given. Accepted
+                           for backward compatibility.
 
 NAMING:
   --prefix STR             Prefix prepended to the renamed mdl basename
@@ -1286,14 +1312,18 @@ OUTPUT:
                              game folder).
 
 GENERAL:
-  --non-interactive        Disable all prompts (CLI-only run). Mutually
-                           exclusive with --rename and --select.
+  --non-interactive        Disable all prompts (CLI-only run). With no
+                           other selection flag given, this implies
+                           --select-all (process every mdl). Mutually
+                           exclusive with --rename.
   --no-color               Plain text output (no ANSI colors).
   --log PATH               Log file path (default: <script_dir>/kuro_mdl_rename.log).
   -v / --verbose           Verbose log output.
 ```
 
-#### Picker Commands (inside `--select`)
+#### Picker — Command Mode
+
+When the picker opens (default behaviour, or when explicitly entering after `Enter`/`Esc` from cursor mode), the user is at a single-line prompt that accepts text commands. The status line shows the active filter (if any) and the running selection count.
 
 ```
 <selection>      add to selection (numbers, ranges, names, globs, 'all')
@@ -1305,21 +1335,51 @@ remove <sel>     remove items from the selection
                  '/' alone clears the filter
 list [N]         show next page of current view (default N=50)
 first            restart paging from the top of the current view
+pick / i         enter cursor-driven picker (arrow keys, Space, Insert,
+                 g/G glob, / filter, ? search; Enter/Esc returns here)
 show             list the current selection
 clear            remove every item from the selection
-done             accept current selection and continue
+done             accept current selection and continue (exits picker)
 quit             abort the run
 help             this message
 ```
 
 Numeric indices refer to the current VIEW (1..N of what is displayed). Names and globs are matched case-insensitively against ALL discovered `.mdl` files (not just the current view) — so `add chr0001` works even when a filter hides it. The trailing `.mdl` on names/globs is optional.
 
+#### Picker — Cursor Mode (Total-Commander style)
+
+Type `pick` or `i` at the command-mode prompt to switch into a full-screen TUI. The cursor mode is built for fast hand-curation of selections from very large lists.
+
+| Key | Action |
+|---|---|
+| **↑** / **↓** | Move cursor by one row |
+| **PgUp** / **PgDn** | Move cursor by one page |
+| **Home** / **End** | Jump to the start / end of the current view |
+| **Space** | Toggle the selection state of the current row |
+| **Insert** | Toggle current row AND advance cursor by one (TC convention; lets you fly down a list with `Ins Ins Ins...`) |
+| **a** | Toggle ALL items in the current view (smart: if everything is selected → deselect all; otherwise → select all) |
+| **c** | Clear the entire selection (not just the view) |
+| **g** | Glob-add prompt (e.g. `chr*_c01`); pre-fills with the previous `g` pattern |
+| **G** | Glob-remove prompt; pre-fills with the previous `G` pattern |
+| **/** | Filter prompt — narrows the view to entries matching the glob; pre-fills with the existing filter pattern (editable with arrow keys, Backspace, etc.) |
+| **?** | Search prompt — jumps the cursor to the first match in the current view; pre-fills with the previous search |
+| **n** / **N** | Find next / previous match using the last search pattern |
+| **Enter** / **Esc** / **F10** | Return to command mode (selection and filter are both preserved) |
+| **q** | Abort the entire run |
+
+The bottom status bar shows the current filter, the running selection count, and a one-line key reference. The cursor mode is automatically declined (with a warning) when stdin is not a TTY (pipes, redirects); the script falls back to command mode in that case.
+
+Cursor mode is a **sub-tool** of the command-mode picker. `Enter` and `Esc` both return to command mode rather than accepting and exiting the picker — this keeps a clear two-step confirmation: you pick interactively, then explicitly type `done` in command mode to actually accept. This means `pick` → make a change → `Enter` → `pick` → make another change → `Enter` → `done` is a perfectly normal workflow; selection is preserved across every transition.
+
+After every return to command mode the script prints a short status line summarizing the selection state and reminding the user of the four most useful next-steps (`done`, `pick`, `show`, `help`).
+
 #### Examples with Real Data
 
 **Build a costume mod from a game install (canonical workflow):**
 ```bash
-# Pick the .mdl files interactively, write a single mod .p3a next to cwd
-py kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --select --apply
+# The interactive picker opens automatically; pick the .mdl files,
+# write a single mod .p3a next to cwd:
+py kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --apply
 
 # Production-validated example with a real Trails install:
 #   - 26410 .mdl files discovered across 3 contributing .p3a archives
@@ -1333,11 +1393,20 @@ py kuro_mdl_rename.py --game "D:\Steam\steamapps\common\TrailsXYZ" --select --ap
 **Drop the script into the game folder itself:**
 ```bash
 # Once placed in the game folder, --game alone uses the script's own dir
-py kuro_mdl_rename.py --game --select --apply
+py kuro_mdl_rename.py --game --apply
 
-# Output goes next to the script (which IS the game dir in this case).
-# Pass --output to keep the mod elsewhere if you don't want it landing
-# next to vanilla archives.
+# Output goes to <cwd> by default (the game folder when the script
+# was launched from there). Pass --output to keep the mod elsewhere
+# if you don't want it landing next to vanilla archives.
+```
+
+**Process every discovered .mdl, no picker (legacy "rename everything" behaviour):**
+```bash
+py kuro_mdl_rename.py --game "D:\Steam\..." --select-all --apply
+
+# Or implicitly via --non-interactive (which sets --select-all when no
+# other selection flag is given):
+py kuro_mdl_rename.py --game "D:\Steam\..." --non-interactive --apply
 ```
 
 **Non-interactive subset by glob (game-directory mode):**
@@ -1368,7 +1437,7 @@ py kuro_mdl_rename.py --game "D:\Steam\..." --only-from my_mod.txt --apply
 # Each selected mdl prompts for a new basename. Pre-filled default
 # is 'mod_<orig>'. Hit Enter to accept, type a name to override, or
 # delete the prefix to keep the original name.
-py kuro_mdl_rename.py --game "D:\Steam\..." --select --rename --apply
+py kuro_mdl_rename.py --game "D:\Steam\..." --rename --apply
 ```
 
 **Project tree as input, .p3a archive as output:**
@@ -1385,6 +1454,9 @@ py kuro_mdl_rename.py C:\mods\pyrixiaSFW --p3a --keep --apply
 # Subset only — keep everything else verbatim (mod uses just one
 # character but the project archive is complete):
 py kuro_mdl_rename.py C:\mods\pyrixiaSFW --only "chr5113_c01" --keep --apply
+
+# Process every mdl in the project, no picker:
+py kuro_mdl_rename.py C:\mods\pyrixiaSFW --select-all --apply
 ```
 
 **Single .p3a in / single .p3a out:**
@@ -1413,7 +1485,10 @@ py kuro_mdl_rename.py --game "D:\Steam\..." --only "chr*_c01" \
 
 **Full non-interactive run (CI / scripts):**
 ```bash
+# --non-interactive without a list filter implies --select-all:
 py kuro_mdl_rename.py C:\mods\pyrixiaSFW --non-interactive --apply --prefix mod_
+
+# With a glob filter (no implicit --select-all):
 py kuro_mdl_rename.py --game "D:\Steam\..." --non-interactive \
     --only "chr*_c01" --apply
 ```
@@ -1423,7 +1498,7 @@ py kuro_mdl_rename.py --game "D:\Steam\..." --non-interactive \
 # Print the full per-mdl plan: renamed mdls, per-mdl image copies,
 # missing references, output path, compression choices. Without
 # --apply nothing is written.
-py kuro_mdl_rename.py --game "D:\Steam\..." --select
+py kuro_mdl_rename.py --game "D:\Steam\..."
 py kuro_mdl_rename.py C:\mods\pyrixiaSFW --only "chr*_c01"
 ```
 
@@ -1443,8 +1518,10 @@ Override any of these with `--output PATH`. The log file always goes next to the
 #### Mutual-Exclusion Rules
 
 - `--rename` and `--non-interactive` cannot be combined (rename needs prompts).
-- `--select` and `--non-interactive` cannot be combined (the picker IS interactive).
-- `--select` and `--only` / `--only-from` cannot be combined (use one or the other).
+- `--select-all` and `--only` / `--only-from` cannot be combined (you either select EVERY mdl or filter to a list — not both).
+- `--select-all` and `--select` (the deprecated explicit picker flag) cannot be combined; the picker is now the default, drop one of the two.
+
+The deprecated `--select` flag is still accepted on the command line for backward compatibility but is a no-op (the picker is the default). `--non-interactive` with no other selection flag silently implies `--select-all` (a non-interactive run can't open a picker, so the only sensible default is "process every mdl").
 
 #### Required Python Packages
 
