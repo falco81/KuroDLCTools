@@ -11,22 +11,26 @@ overlapping vanilla assets never overwrite each other.
 
 PRIMARY WORKFLOW
 ----------------
-Point the script at the game's install directory, interactively pick
-the .mdl files you want to mod, and let it produce a single mod .p3a
-archive in the directory you ran the script from:
+Point the script at the game's install directory; the interactive picker
+opens by default and lets you choose which .mdl files to mod, then
+produces a single mod .p3a archive in the directory you ran the script
+from:
 
-    py kuro_mdl_rename.py --game "D:\\Steam\\...\\TrailsXYZ" --select --apply
+    py kuro_mdl_rename.py --game "D:\\Steam\\...\\TrailsXYZ" --apply
 
 If the script lives inside the game folder itself, --game alone (no
 path) is enough:
 
-    py kuro_mdl_rename.py --game --select --apply
+    py kuro_mdl_rename.py --game --apply
 
-In this mode the script reads every .p3a's table of contents at the
-game-folder top level, presents the discovered mdls in an interactive
-picker (with display filter, paging and glob-add) and extracts ONLY
-the files the selected models actually need into a transient scratch
-directory before packaging them. The game's own data is never modified.
+The picker reads every .p3a's table of contents at the game-folder
+top level (no extraction at scan time) and presents the discovered
+mdls with display filter, paging, glob-add, and a Total-Commander-
+style cursor mode (type 'pick' or 'i' inside the picker for
+arrow-key navigation). Only the mdls you chose plus their .mi
+side-cars and the images they actually reference are extracted into
+a transient scratch directory before packaging. The game's own data
+is never modified.
 
 WHAT THE SCRIPT DOES PER .mdl
 -----------------------------
@@ -58,22 +62,30 @@ The script also handles legacy project layouts as the source:
 For these the output defaults to a directory tree; pass --p3a to
 package as a .p3a archive.
 
-SUBSET SELECTION (default = all discovered .mdls)
--------------------------------------------------
-  * --select          interactive picker with display filter, paging,
-                      glob-add, and a 'help' command (recommended for
-                      game-directory mode -- see PRIMARY WORKFLOW)
+SUBSET SELECTION
+----------------
+The interactive picker is the default — running the script with no
+selection flag opens it. It is scaled for thousands of mdls (display
+filter, paging, glob-add, Total-Commander-style cursor mode). To skip
+the picker:
+
+  * --select-all      process every discovered .mdl, no picker
   * --only NAMES      comma-separated names or globs (chr*_c01, etc.)
   * --only-from FILE  one name/glob per line; '#' is a line comment
+
+The historical --select flag is still accepted but is now a no-op
+(the picker is the default). --non-interactive without --only /
+--only-from implies --select-all.
 
 Default mode is dry-run; pass --apply (or answer 'yes' to the apply
 prompt in interactive mode) to actually write files.
 
 More usage examples:
     py kuro_mdl_rename.py --game --only "chr*_c01" --apply
+    py kuro_mdl_rename.py --game --select-all --apply
     py kuro_mdl_rename.py C:\\mods\\proj --apply
     py kuro_mdl_rename.py C:\\mods\\proj.p3a --p3a --apply
-    py kuro_mdl_rename.py C:\\mods\\proj --select
+    py kuro_mdl_rename.py C:\\mods\\proj --select-all --apply
 
 Run with --help for the full reference.
 
@@ -3310,6 +3322,564 @@ def _resolve_selection_tokens(text, mdls, view_list):
     return paths, unmatched
 
 
+# =============================================================================
+# CURSOR-MODE PICKER (Total-Commander-style interactive selector)
+# =============================================================================
+# A second tier of interaction available inside `--select`: instead of typing
+# index-based commands, the user enters a full-screen TUI with arrow-key
+# navigation. Triggered by the 'pick' or 'i' command in command mode.
+#
+# Key differences from command mode:
+#   * Single keypress drives every action (no Enter required, except for the
+#     few sub-prompts: filter, search, glob).
+#   * Selection state is the SAME set as command mode — entering and leaving
+#     cursor mode preserves what's selected.
+#   * Navigation is per-row (Up/Down) and per-page (PgUp/PgDn). Space toggles
+#     the current row; Insert toggles + advances (TC convention).
+#
+# Cross-platform raw input: Windows uses msvcrt, POSIX uses termios/tty.
+# No external dependencies.
+
+def _stdin_is_tty():
+    """True when stdin is connected to a real terminal (not piped/redirected)."""
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _terminal_size():
+    """Return (cols, rows) of the controlling terminal, with a sane fallback."""
+    try:
+        sz = shutil.get_terminal_size(fallback=(80, 24))
+        return max(40, sz.columns), max(10, sz.lines)
+    except Exception:
+        return 80, 24
+
+
+# Logical key constants returned by _read_key(). Plain characters come back as
+# the character itself; special keys return one of these strings.
+_K_UP, _K_DOWN, _K_LEFT, _K_RIGHT = "UP", "DOWN", "LEFT", "RIGHT"
+_K_HOME, _K_END = "HOME", "END"
+_K_PGUP, _K_PGDN = "PGUP", "PGDN"
+_K_INSERT, _K_DELETE = "INSERT", "DELETE"
+_K_ESC, _K_ENTER, _K_BACKSPACE, _K_TAB = "ESC", "ENTER", "BACKSPACE", "TAB"
+_K_F10 = "F10"
+
+
+def _read_key_windows():
+    """Single-keypress reader on Windows via msvcrt. Returns a logical key."""
+    import msvcrt  # noqa: import-here-on-purpose
+    ch = msvcrt.getwch()
+    # Special keys arrive as a two-char sequence: 0x00 or 0xE0 then a code.
+    if ch in ("\x00", "\xe0"):
+        code = msvcrt.getwch()
+        return {
+            "H": _K_UP,    "P": _K_DOWN,    "K": _K_LEFT,   "M": _K_RIGHT,
+            "G": _K_HOME,  "O": _K_END,
+            "I": _K_PGUP,  "Q": _K_PGDN,
+            "R": _K_INSERT, "S": _K_DELETE,
+            "T": _K_F10,    # F10 = "T"; F1..F9 are other letters but unused.
+        }.get(code, "")
+    if ch == "\r" or ch == "\n":
+        return _K_ENTER
+    if ch == "\x1b":
+        return _K_ESC
+    if ch in ("\x08", "\x7f"):
+        return _K_BACKSPACE
+    if ch == "\t":
+        return _K_TAB
+    return ch
+
+
+def _read_key_posix():
+    """Single-keypress reader on POSIX via termios. Returns a logical key.
+    Reads escape sequences for the arrow keys, Home/End, PgUp/PgDn, Insert."""
+    import termios  # noqa: import-here-on-purpose
+    import tty      # noqa: import-here-on-purpose
+    import select as _select  # noqa: import-here-on-purpose
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        ch = sys.stdin.read(1)
+        if ch != "\x1b":
+            if ch in ("\r", "\n"):
+                return _K_ENTER
+            if ch == "\x7f" or ch == "\x08":
+                return _K_BACKSPACE
+            if ch == "\t":
+                return _K_TAB
+            return ch
+
+        # Possible escape sequence. Peek with 50 ms timeout — bare Esc has
+        # nothing else to read, real sequences arrive together.
+        if not _select.select([sys.stdin], [], [], 0.05)[0]:
+            return _K_ESC
+        seq = sys.stdin.read(1)
+        if seq != "[" and seq != "O":
+            return _K_ESC
+        # CSI / SS3 sequence: read until a final byte (letter or '~').
+        buf = ""
+        while True:
+            if not _select.select([sys.stdin], [], [], 0.1)[0]:
+                break
+            c = sys.stdin.read(1)
+            buf += c
+            if c.isalpha() or c == "~":
+                break
+        # Map common sequences.
+        return {
+            "A": _K_UP, "B": _K_DOWN, "C": _K_RIGHT, "D": _K_LEFT,
+            "H": _K_HOME, "F": _K_END,
+            "5~": _K_PGUP, "6~": _K_PGDN,
+            "2~": _K_INSERT, "3~": _K_DELETE,
+            "1~": _K_HOME, "4~": _K_END,    # rxvt / linux console
+            "21~": _K_F10,
+        }.get(buf, "")
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def _read_key():
+    """Cross-platform single-keypress read."""
+    if os.name == "nt":
+        return _read_key_windows()
+    return _read_key_posix()
+
+
+def _cursor_mode_prompt(prompt_text, initial=""):
+    """Read a line of text from the user, displayed at the bottom of the
+    screen. Used inside cursor mode for the / filter, ? search, and g/G glob
+    sub-prompts. Returns the entered string (possibly empty), or None if Esc /
+    Ctrl+C was pressed during the prompt.
+
+    When `initial` is given, the existing value is pre-filled and editable
+    via the same mechanism as prompt_with_default(): on a real interactive
+    console the user gets the value as if typed and can edit it with
+    Backspace, Delete, and arrow keys before pressing Enter; on dumb /
+    redirected stdin a bracket-style "[initial]" fallback is shown.
+
+    Implementation: on POSIX, _read_key_posix() leaves the terminal in the
+    cooked state on every call (cbreak is set/restored inside its try/finally)
+    so by the time control reaches here, normal line editing already works.
+    We just call prompt_with_default(), which handles both the prefill path
+    and the bracket fallback transparently."""
+    try:
+        if initial:
+            val = prompt_with_default(prompt_text, initial, allow_empty=True)
+            return val if val is not None else None
+        else:
+            # No initial -- a plain read is enough (and avoids showing
+            # an empty "[]" bracket in the bracket-style fallback).
+            sys.stdout.write(prompt_text)
+            sys.stdout.flush()
+            line = sys.stdin.readline()
+            if line == "":  # EOF -> treat as cancel
+                return None
+            return line.rstrip("\r\n")
+    except (KeyboardInterrupt, EOFError):
+        return None
+
+
+def _cursor_select_mdls(mdls, selected, filter_pat):
+    """Total-Commander-style cursor-driven picker.
+
+    `mdls` is the full list (read-only here).
+    `selected` is a mutable set, shared with the command-mode loop.
+    `filter_pat` is the current filter glob (may be None).
+
+    Returns a tuple (action, new_filter_pat):
+      action == 'done'  -> caller accepts selection and exits the picker
+      action == 'quit'  -> caller aborts the picker (raise SystemExit)
+      action == 'back'  -> caller returns to command mode
+
+    The selected set is mutated in place during navigation.
+    """
+    if not _stdin_is_tty():
+        sys.stdout.write(
+            "  " + _yellow("Cursor mode requires an interactive terminal "
+                           "(stdin is not a TTY).") + "\n")
+        return ("back", filter_pat)
+
+    cols, rows = _terminal_size()
+    if cols < 60 or rows < 12:
+        sys.stdout.write(
+            "  " + _yellow("Terminal is too small for cursor mode "
+                           "(need at least 60x12, have {}x{}).".format(cols, rows))
+            + "\n")
+        return ("back", filter_pat)
+
+    def basename_of(p):
+        return os.path.splitext(os.path.basename(p))[0]
+
+    # Local view + scroll state. The view is recomputed whenever filter_pat
+    # changes; scroll/cursor positions are normalized after each change.
+    def compute_view():
+        return _glob_match_mdls(mdls, filter_pat) if filter_pat else mdls
+
+    view = compute_view()
+    cursor = 0       # absolute index inside `view`
+    scroll = 0       # index of the topmost visible row
+    last_search = ""    # for ? + n/N
+    last_glob_add = ""  # for g (so re-pressing g pre-fills last 'select group' pattern)
+    last_glob_rm = ""   # for G ('unselect group' pattern)
+
+    def clamp_view():
+        """Ensure cursor is in range and scroll keeps cursor visible."""
+        nonlocal cursor, scroll
+        if not view:
+            cursor, scroll = 0, 0
+            return
+        if cursor < 0:
+            cursor = 0
+        if cursor >= len(view):
+            cursor = len(view) - 1
+        body_h = max(1, rows - 6)  # leave 6 rows for header + status
+        if cursor < scroll:
+            scroll = cursor
+        elif cursor >= scroll + body_h:
+            scroll = cursor - body_h + 1
+        if scroll < 0:
+            scroll = 0
+        if scroll > max(0, len(view) - body_h):
+            scroll = max(0, len(view) - body_h)
+
+    def render(message=None, message_color=None):
+        """Repaint the entire screen. `message` is shown above the status
+        bar in `message_color` (a styling helper like _yellow / _green).
+        Cursor is left at the bottom-left so any sub-prompt overlays cleanly."""
+        nonlocal cols, rows
+        cols, rows = _terminal_size()  # respond to terminal resizes
+        clamp_view()
+        body_h = max(1, rows - 6)
+
+        out = []
+        # Clear screen + move cursor home. ESC[2J clears, ESC[H homes.
+        out.append("\x1b[H\x1b[2J")
+
+        # ---- Header line ----
+        if filter_pat:
+            hdr_filter = (_dim("[filter '") + _cyan(filter_pat) + _dim("': ")
+                          + _bold(_cyan(str(len(view)))) + _dim(" match]"))
+        else:
+            hdr_filter = _dim("[no filter]")
+        sel_count = (_bold(_green(str(len(selected))))
+                     if len(selected) > 0 else _dim(str(len(selected))))
+        header = (_bold(_magenta("--- Cursor picker ---")) + "  "
+                  + hdr_filter + "  "
+                  + _dim("selected:") + sel_count + _dim("/" + str(len(mdls))))
+        out.append(header)
+        out.append("")  # blank separator
+
+        # ---- Body: visible window of `view` ----
+        if not view:
+            out.append("  " + _dim("(no items match the current filter)"))
+            for _ in range(body_h - 1):
+                out.append("")
+        else:
+            idx_w = max(3, len(str(len(view))))
+            end = min(scroll + body_h, len(view))
+            for i in range(scroll, end):
+                p = view[i]
+                is_sel = p in selected
+                is_cur = (i == cursor)
+                marker = _green("[x]") if is_sel else _dim("[ ]")
+                idx_str = "{:>{w}}.".format(i + 1, w=idx_w)
+                name = basename_of(p)
+                if is_cur:
+                    # Highlight the cursor row with a reverse-video block.
+                    # The leading "> " arrow plus inverted name is robust on
+                    # terminals where reverse video isn't fully supported.
+                    line = ("\x1b[7m> " + marker + " " + _dim(idx_str) + "  "
+                            + (_bold(name) if is_sel else name) + "\x1b[0m")
+                else:
+                    line = ("  " + marker + " " + _dim(idx_str) + "  "
+                            + (_bold(name) if is_sel else name))
+                out.append(line)
+            # Pad body to constant height so the status bar stays put.
+            for _ in range(body_h - (end - scroll)):
+                out.append("")
+
+        # ---- Optional message line ----
+        out.append("")
+        if message:
+            colorize = message_color or (lambda s: s)
+            out.append("  " + colorize(message))
+        else:
+            out.append("")
+
+        # ---- Status bar (key hints) ----
+        out.append(_dim(
+            "  \u2191\u2193/PgUp/PgDn move   Space toggle   Ins toggle+\u2193   "
+            "g/G glob+/-   /filter   ?search   n next   a all   c clear   "
+            "Enter/Esc back to cmd   q abort"))
+
+        sys.stdout.write("\n".join(out))
+        sys.stdout.flush()
+
+    def find_next(pattern, start_index, direction=1):
+        """Substring search inside `view` starting AFTER start_index.
+        Returns the index, or -1 if not found. Wraps around once."""
+        if not view or not pattern:
+            return -1
+        pat = pattern.lower()
+        n = len(view)
+        # Probe every index exactly once, starting one past start_index.
+        for k in range(1, n + 1):
+            i = (start_index + direction * k) % n
+            if pat in basename_of(view[i]).lower():
+                return i
+        return -1
+
+    # ---- Main key loop ----
+    msg, msg_color = None, None
+    render()
+    try:
+        while True:
+            try:
+                key = _read_key()
+            except KeyboardInterrupt:
+                # Ctrl+C inside cursor mode -> back to command mode (graceful)
+                return ("back", filter_pat)
+
+            # Reset message on any keystroke (will be set again below if
+            # this keystroke produces feedback worth keeping visible).
+            msg, msg_color = None, None
+
+            if key == _K_UP:
+                cursor -= 1
+            elif key == _K_DOWN:
+                cursor += 1
+            elif key == _K_PGUP:
+                cursor -= max(1, rows - 6)
+            elif key == _K_PGDN:
+                cursor += max(1, rows - 6)
+            elif key == _K_HOME:
+                cursor = 0
+            elif key == _K_END:
+                cursor = max(0, len(view) - 1)
+            elif key == " ":
+                # Toggle current row.
+                if view:
+                    p = view[cursor]
+                    if p in selected:
+                        selected.discard(p)
+                    else:
+                        selected.add(p)
+            elif key == _K_INSERT:
+                # TC-style: toggle current row AND move cursor down by 1.
+                if view:
+                    p = view[cursor]
+                    if p in selected:
+                        selected.discard(p)
+                    else:
+                        selected.add(p)
+                    cursor += 1
+            elif key == "a":
+                # Toggle all items in current view.
+                #   * If every item in view is selected -> deselect all in view
+                #   * Otherwise                          -> select all in view
+                if view:
+                    all_in = all(p in selected for p in view)
+                    if all_in:
+                        for p in view:
+                            selected.discard(p)
+                        msg, msg_color = (
+                            "Deselected {} item(s) in current view.".format(len(view)),
+                            _yellow,
+                        )
+                    else:
+                        added = sum(1 for p in view if p not in selected)
+                        for p in view:
+                            selected.add(p)
+                        msg, msg_color = (
+                            "Selected all {} item(s) in current view "
+                            "({} newly added).".format(len(view), added),
+                            _green,
+                        )
+            elif key == "c":
+                # Clear entire selection (not just view).
+                if selected:
+                    n = len(selected)
+                    selected.clear()
+                    msg, msg_color = (
+                        "Cleared {} item(s) from selection.".format(n),
+                        _yellow,
+                    )
+            elif key == "/":
+                # Filter prompt: change the view itself.
+                # Pre-fill with current filter pattern so '/' followed by edit
+                # tweaks an existing filter rather than retyping from scratch.
+                # Submitting an empty value clears the filter.
+                render()  # ensure screen is fresh before overlay prompt
+                # Move cursor to bottom for prompt input.
+                sys.stdout.write("\x1b[{};1H".format(rows))
+                sys.stdout.write("\x1b[2K")  # clear line
+                txt = _cursor_mode_prompt(
+                    _dim("Filter (glob, empty to clear): /"),
+                    initial=filter_pat or "")
+                if txt is None:
+                    pass  # cancelled, keep current filter
+                else:
+                    pat = txt.strip()
+                    if pat.lower().endswith(".mdl"):
+                        pat = pat[:-4]
+                    if not pat:
+                        filter_pat = None
+                        msg, msg_color = ("Filter cleared.", _cyan)
+                    else:
+                        new_view = _glob_match_mdls(mdls, pat)
+                        filter_pat = pat
+                        view = new_view
+                        cursor, scroll = 0, 0
+                        if not new_view:
+                            msg, msg_color = (
+                                "Filter '{}' matches 0 items "
+                                "(filter still set; '/' alone clears it).".format(pat),
+                                _yellow,
+                            )
+                        else:
+                            msg, msg_color = (
+                                "Filter '{}' -> {} match(es).".format(
+                                    pat, len(new_view)),
+                                _green,
+                            )
+                # Recompute view in case filter changed.
+                view = compute_view()
+            elif key == "?":
+                # Search prompt: jump cursor to first match in current view.
+                # Pre-fills with last search pattern so re-pressing '?' lets
+                # you tweak it instead of retyping.
+                render()
+                sys.stdout.write("\x1b[{};1H".format(rows))
+                sys.stdout.write("\x1b[2K")
+                txt = _cursor_mode_prompt(_dim("Search (substring): ?"),
+                                          initial=last_search)
+                if txt is None or not txt.strip():
+                    pass  # cancelled
+                else:
+                    last_search = txt.strip()
+                    idx = find_next(last_search, cursor - 1, direction=1)
+                    if idx >= 0:
+                        cursor = idx
+                        msg, msg_color = (
+                            "Found '{}' at row {}.".format(last_search, cursor + 1),
+                            _green,
+                        )
+                    else:
+                        msg, msg_color = (
+                            "No match for '{}' in current view.".format(last_search),
+                            _yellow,
+                        )
+            elif key in ("n", "N"):
+                # n = next, N = prev. Uses last_search.
+                if not last_search:
+                    msg, msg_color = (
+                        "No previous search. Press '?' to search first.",
+                        _dim,
+                    )
+                else:
+                    direction = 1 if key == "n" else -1
+                    idx = find_next(last_search, cursor, direction=direction)
+                    if idx >= 0:
+                        cursor = idx
+                        msg, msg_color = (
+                            "{} match for '{}' at row {}.".format(
+                                "Next" if direction == 1 else "Prev",
+                                last_search, cursor + 1),
+                            _green,
+                        )
+                    else:
+                        msg, msg_color = (
+                            "No more matches for '{}'.".format(last_search),
+                            _yellow,
+                        )
+            elif key == "g":
+                # Glob-add: ADD all mdls (in full list) matching a glob.
+                # Pre-fills with last 'g' pattern.
+                render()
+                sys.stdout.write("\x1b[{};1H".format(rows))
+                sys.stdout.write("\x1b[2K")
+                txt = _cursor_mode_prompt(_dim("Select group (glob): "),
+                                          initial=last_glob_add)
+                if txt and txt.strip():
+                    pat = txt.strip()
+                    if pat.lower().endswith(".mdl"):
+                        pat = pat[:-4]
+                    last_glob_add = pat
+                    matches = _glob_match_mdls(mdls, pat)
+                    added = sum(1 for p in matches if p not in selected)
+                    for p in matches:
+                        selected.add(p)
+                    msg, msg_color = (
+                        "+ {} added by glob '{}' ({} matched, {} already selected).".format(
+                            added, pat, len(matches), len(matches) - added),
+                        _green,
+                    )
+            elif key == "G":
+                # Glob-remove: DESELECT all mdls matching a glob.
+                # Pre-fills with last 'G' pattern.
+                render()
+                sys.stdout.write("\x1b[{};1H".format(rows))
+                sys.stdout.write("\x1b[2K")
+                txt = _cursor_mode_prompt(_dim("Unselect group (glob): "),
+                                          initial=last_glob_rm)
+                if txt and txt.strip():
+                    pat = txt.strip()
+                    if pat.lower().endswith(".mdl"):
+                        pat = pat[:-4]
+                    last_glob_rm = pat
+                    matches = _glob_match_mdls(mdls, pat)
+                    removed = sum(1 for p in matches if p in selected)
+                    for p in matches:
+                        selected.discard(p)
+                    msg, msg_color = (
+                        "- {} removed by glob '{}' ({} matched).".format(
+                            removed, pat, len(matches)),
+                        _yellow,
+                    )
+            elif key in (_K_ENTER, _K_F10):
+                # Return to command mode -- selection is preserved so the
+                # user can confirm with 'done', 'show' to review, or 'pick'
+                # again to continue selecting. This matches the user's
+                # mental model: cursor mode is a sub-tool of the picker,
+                # not a final accept gesture. To actually accept and exit
+                # the picker, type 'done' in command mode (or 'q' here to
+                # abort the whole run).
+                sys.stdout.write("\x1b[H\x1b[2J")
+                sys.stdout.flush()
+                return ("back", filter_pat)
+            elif key == _K_ESC:
+                # Same as Enter: back to command mode; selection preserved.
+                sys.stdout.write("\x1b[H\x1b[2J")
+                sys.stdout.flush()
+                return ("back", filter_pat)
+            elif key == "q":
+                sys.stdout.write("\x1b[H\x1b[2J")
+                sys.stdout.flush()
+                return ("quit", filter_pat)
+            elif key in ("?", "h"):
+                # Already handled above for ?; 'h' alone shows nothing
+                # special in cursor mode (status bar IS the help). No-op.
+                pass
+            else:
+                # Unknown key: ignore silently (avoids surprising the user
+                # who stomped the keyboard).
+                pass
+
+            render(message=msg, message_color=msg_color)
+    except Exception as e:  # pragma: no cover -- safety net
+        # If anything goes wrong inside the cursor loop, restore the screen
+        # and bubble back to command mode so the user can recover.
+        sys.stdout.write("\x1b[H\x1b[2J")
+        sys.stdout.flush()
+        sys.stdout.write("  " + _red(
+            "Cursor mode error: {} — back to command mode.".format(e)) + "\n")
+        return ("back", filter_pat)
+
+
 def _interactive_select_mdls(mdls):
     """Interactive picker scaled to large mdl lists (hundreds to thousands).
 
@@ -3402,6 +3972,9 @@ def _interactive_select_mdls(mdls):
             + _kw("'/'") + " alone clears the filter\n"
             "    " + _cmd("list [N]") + "            show next page of current view (default N=50)\n"
             "    " + _cmd("first") + "               restart paging from the top of the current view\n"
+            "    " + _cmd("pick") + " / " + _cmd("i") + "          enter cursor-driven picker (arrows, Space, Insert, "
+            + _kw("g") + "/" + _kw("G") + " glob, " + _kw("/") + " filter, " + _kw("?") + " search; "
+            + _kw("Enter") + "/" + _kw("Esc") + " returns here)\n"
             "    " + _cmd("show") + "                list the current selection\n"
             "    " + _cmd("clear") + "               remove every item from the selection\n"
             "    " + _cmd("done") + "                accept current selection and continue\n"
@@ -3493,6 +4066,33 @@ def _interactive_select_mdls(mdls):
 
         if verb in ("quit", "abort", "cancel", "exit", "q"):
             raise SystemExit("Aborted: no .mdl files selected.")
+
+        if verb in ("pick", "i", "interactive", "tui"):
+            # Hand off to the cursor-mode picker. It mutates `selected` in
+            # place and may also change `filter_pat`. Returns one of:
+            #   ('back', pat)  -> return to command mode (Enter or Esc;
+            #                     this is the normal exit path)
+            #   ('quit', pat)  -> abort (q in cursor mode)
+            # The picker no longer returns 'done' directly: the user must
+            # type 'done' here in command mode to actually accept and exit
+            # the picker. This keeps a clean two-step confirmation: pick
+            # interactively, then explicitly accept.
+            action, filter_pat = _cursor_select_mdls(mdls, selected, filter_pat)
+            page_offset[0] = 0  # reset paging since view may have changed
+            if action == "quit":
+                raise SystemExit("Aborted: no .mdl files selected.")
+            # action == 'back' (or legacy 'done' which we no longer emit):
+            # show a brief status with the current selection size and let
+            # the command loop continue.
+            sys.stdout.write(
+                "  " + _cyan("Back to command mode.") + " "
+                + _dim("Selection: ") + _bold(_green(str(len(selected))))
+                + _dim("/" + str(len(mdls)) + ". Type ")
+                + _bold(_green("'done'")) + _dim(" to accept, ")
+                + _bold(_green("'pick'")) + _dim(" to continue editing, ")
+                + _bold(_green("'show'")) + _dim(" to review, or ")
+                + _bold(_green("'help'")) + _dim(" for all commands.") + "\n")
+            continue
 
         if verb == "show":
             if not selected:
@@ -3589,15 +4189,12 @@ def parse_args(argv=None):
             "\n"
             "PRIMARY WORKFLOW\n"
             "----------------\n"
-            "Point the script at the game's install directory with --game and\n"
-            "interactively pick which .mdl files to mod with --select. The\n"
-            "script reads every .p3a's table of contents at the game-folder\n"
-            "top level, lets you filter / page / glob-pick the models, then\n"
-            "extracts ONLY the files the selected mdls actually need into a\n"
-            "transient scratch directory and packages them into a single mod\n"
+            "Point the script at the game's install directory with --game;\n"
+            "the interactive picker opens by default and lets you choose\n"
+            "which .mdl files to mod, then packages them into a single mod\n"
             ".p3a archive in the directory the script was run from:\n"
             "\n"
-            "    py kuro_mdl_rename.py --game \"D:\\Path\\To\\GameInstall\" --select --apply\n"
+            "    py kuro_mdl_rename.py --game \"D:\\Path\\To\\GameInstall\" --apply\n"
             "\n"
             "If the script lives inside the game folder, --game alone (no\n"
             "path) uses the script's own directory.\n"
@@ -3620,14 +4217,19 @@ def parse_args(argv=None):
             "Output is either a directory tree (default for project / .p3a\n"
             "input) or a single .p3a archive (--p3a; default for --game).\n"
             "\n"
-            "SUBSET SELECTION (default = all discovered .mdls)\n"
-            "-------------------------------------------------\n"
-            "  --select          interactive picker with display filter, paging\n"
-            "                    and glob-based selection (recommended; scales\n"
-            "                    to thousands of mdls)\n"
+            "SUBSET SELECTION\n"
+            "----------------\n"
+            "By default the script opens an interactive picker that scales\n"
+            "to thousands of mdls (display filter, paging, glob-add,\n"
+            "Total-Commander-style cursor mode). To skip the picker:\n"
+            "  --select-all      process every discovered .mdl (legacy default)\n"
             "  --only NAMES      comma-separated mdl basenames or globs\n"
             "                    (e.g. --only chr0001,chr0002 or --only \"chr*_c01\")\n"
             "  --only-from FILE  read names/globs from a text file, one per line\n"
+            "\n"
+            "--non-interactive (with no other selection flag) implies\n"
+            "--select-all. The original --select flag is still accepted but\n"
+            "is now a no-op (the picker is the default).\n"
             "\n"
             "FOR EVERY .mdl IN SCOPE, THE SCRIPT:\n"
             "------------------------------------\n"
@@ -3655,27 +4257,35 @@ def parse_args(argv=None):
         epilog=(
             "Primary workflow\n"
             "----------------\n"
-            "Drop the script anywhere, point it at the game install directory,\n"
-            "interactively pick the .mdl files you want to mod -- the resulting\n"
-            "mod .p3a is written next to where you ran the script:\n"
-            "    py kuro_mdl_rename.py --game \"D:\\Steam\\...\\TrailsXYZ\" --select --apply\n"
+            "Drop the script anywhere, point it at the game install directory.\n"
+            "The interactive picker opens by default; the resulting mod .p3a\n"
+            "is written next to where you ran the script:\n"
+            "    py kuro_mdl_rename.py --game \"D:\\Steam\\...\\TrailsXYZ\" --apply\n"
             "\n"
             "If the script lives inside the game folder itself, --game alone\n"
             "(no path) uses the script's own directory:\n"
-            "    py kuro_mdl_rename.py --game --select --apply\n"
+            "    py kuro_mdl_rename.py --game --apply\n"
             "\n"
             "Game-directory mode with non-interactive subset selection:\n"
             "    py kuro_mdl_rename.py --game --only \"chr5113_c0?\" --apply\n"
             "    py kuro_mdl_rename.py --game \"D:\\Steam\\...\\TrailsXYZ\" \\\n"
             "                          --only \"chr*_c01\" --output mymod.p3a --apply\n"
             "\n"
+            "Game-directory mode, process every discovered .mdl (no picker):\n"
+            "    py kuro_mdl_rename.py --game --select-all --apply\n"
+            "\n"
             "Other source modes\n"
             "------------------\n"
-            "Default interactive run, project at the current directory:\n"
+            "Default interactive run, project at the current directory\n"
+            "(picker opens automatically):\n"
             "    py kuro_mdl_rename.py\n"
             "\n"
-            "Default interactive run pointed at a project folder:\n"
+            "Default interactive run pointed at a project folder\n"
+            "(picker opens automatically):\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW\n"
+            "\n"
+            "Process every mdl in a project, no picker:\n"
+            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --select-all --apply\n"
             "\n"
             "Per-mdl interactive rename (each mdl asks for a new name):\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --rename\n"
@@ -3692,13 +4302,11 @@ def parse_args(argv=None):
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --only \"chr*_c01\" --apply\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --only-from list.txt --apply\n"
             "\n"
-            "Pick the subset interactively (filter, page through, glob-add, etc.):\n"
-            "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --select\n"
-            "\n"
             "Subset + keep everything else verbatim (so the output is a complete project):\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --only chr0001 --keep --apply\n"
             "\n"
-            "Fully non-interactive run (CI / scripts; no prompts at all):\n"
+            "Fully non-interactive run (CI / scripts; no prompts; --non-interactive\n"
+            "implies --select-all when no --only filter is given):\n"
             "    py kuro_mdl_rename.py C:\\mods\\pyrixiaSFW --non-interactive --apply --prefix mod_\n"
             "\n"
             "Path resolution is permissive -- all of these work:\n"
@@ -3733,17 +4341,23 @@ def parse_args(argv=None):
             "  removed automatically on every exit path (success, error,\n"
             "  Ctrl+C). --keep is a no-op in --game mode (the scratch only\n"
             "  contains files the renaming pipeline already consumes).\n"
-            "* The interactive --select picker scales to thousands of mdls:\n"
-            "  type 'help' inside it for the full command list (filter,\n"
-            "  paging, glob-add, etc.).\n"
-            "* Glob patterns (in --only, --only-from, and inside --select)\n"
+            "* The interactive picker is the DEFAULT when no selection flag\n"
+            "  is given. It scales to thousands of mdls -- type 'help' inside\n"
+            "  it for the full command list (filter, paging, glob-add) and\n"
+            "  'pick' / 'i' for the Total-Commander-style cursor mode\n"
+            "  (arrow keys, Space/Insert toggle, g/G glob, / filter,\n"
+            "  ? search). To skip the picker pass --select-all (process\n"
+            "  every mdl), --only / --only-from (CLI / file list), or\n"
+            "  --non-interactive (which implies --select-all when no list\n"
+            "  filter is given).\n"
+            "* Glob patterns (in --only, --only-from, and inside the picker)\n"
             "  use fnmatch syntax: '*' = any chars, '?' = one char,\n"
             "  '[abc]' = character class. On Windows cmd, quote patterns\n"
             "  to keep them intact (e.g. --only \"chr*_c01\").\n"
             "* Mutually exclusive flag combinations:\n"
             "      --rename + --non-interactive\n"
-            "      --select + --non-interactive\n"
-            "      --select + --only / --only-from\n"
+            "      --select-all + --only / --only-from\n"
+            "      --select-all + --select  (the latter is now a no-op)\n"
             "* The log file is always written next to this Python script,\n"
             "  not into the output directory. Override with --log."
         ),
@@ -3756,22 +4370,22 @@ def parse_args(argv=None):
                         "Ignored when --game is active.")
     p.add_argument("--game", nargs="?", const="", default=None, metavar="GAMEDIR",
                    help="*** PRIMARY MODE *** -- treat the source as a Trails / ED9 "
-                        "game directory. Combine with --select for the canonical "
-                        "workflow ('py kuro_mdl_rename.py --game \"PATH\" --select --apply'). "
-                        "The directory must contain many .p3a archives at its top level, "
-                        "each carrying part of the asset tree (asset/common/model/, "
-                        "asset/common/model_info/, asset/dx11/image/). The script "
-                        "auto-detects which .p3a files contribute to those folders "
-                        "by reading their tables of contents (no extraction at "
-                        "scan time), presents the discovered .mdl files for "
-                        "selection (via --only / --select / etc.), then extracts "
-                        "ONLY the selected mdls + their .mi side-cars + the images "
-                        "they actually reference into a transient scratch directory. "
-                        "From there the existing renaming pipeline runs as usual "
-                        "and the result defaults to a single .p3a archive output. "
-                        "If --game is given without a path, the directory containing "
-                        "this script is used (so you can drop the script into the "
-                        "game folder and run 'py kuro_mdl_rename.py --game --select'); "
+                        "game directory. The interactive picker opens by default; the "
+                        "canonical workflow is 'py kuro_mdl_rename.py --game \"PATH\" "
+                        "--apply'. The directory must contain many .p3a archives at "
+                        "its top level, each carrying part of the asset tree "
+                        "(asset/common/model/, asset/common/model_info/, "
+                        "asset/dx11/image/). The script auto-detects which .p3a files "
+                        "contribute to those folders by reading their tables of "
+                        "contents (no extraction at scan time), presents the discovered "
+                        ".mdl files in the picker (or applies --only / --select-all if "
+                        "passed), then extracts ONLY the selected mdls + their .mi "
+                        "side-cars + the images they actually reference into a transient "
+                        "scratch directory. From there the existing renaming pipeline "
+                        "runs as usual and the result defaults to a single .p3a archive "
+                        "output. If --game is given without a path, the directory "
+                        "containing this script is used (so you can drop the script "
+                        "into the game folder and run 'py kuro_mdl_rename.py --game'); "
                         "if a path follows, that path is used. The positional "
                         "'project' argument is ignored when --game is active.")
     p.add_argument("--prefix", default=None,
@@ -3831,30 +4445,40 @@ def parse_args(argv=None):
                         "Models not in the list are excluded from the renaming pipeline; "
                         "combined with --keep they are copied verbatim into the output "
                         "(along with their .mi side-car and any images they need under "
-                        "the original names). Mutually exclusive with --select.")
+                        "the original names). Setting --only / --only-from skips the "
+                        "interactive picker that would otherwise run by default.")
     p.add_argument("--only-from", default=None, metavar="FILE",
                    help="Read the list of .mdl selection tokens from FILE (one token per "
                         "line; '#' starts a line comment; blank lines are ignored). Each "
                         "line may be a literal mdl basename OR a glob pattern. Combined "
-                        "with --only when both are given. Mutually exclusive with --select.")
+                        "with --only when both are given. Setting --only / --only-from "
+                        "skips the interactive picker that would otherwise run by default.")
     p.add_argument("--select", action="store_true",
-                   help="Interactively pick which .mdl files to process. The picker is "
-                        "scaled for large projects (hundreds to thousands of mdls): "
-                        "set a display filter with '/<glob>' to narrow the view, page "
-                        "through it with 'list', then add to the selection by index, "
-                        "range, name or glob ('chr*_c01', '1-50', 'all', etc.). Type "
-                        "'help' inside the picker for the full command list and 'done' "
-                        "to confirm. Mutually exclusive with --only / --only-from and "
-                        "with --non-interactive.")
+                   help="DEPRECATED no-op: the interactive picker is now the default "
+                        "behaviour when neither --only / --only-from / --select-all "
+                        "nor --non-interactive is given. The flag is accepted for "
+                        "backward compatibility but does not change anything. "
+                        "Mutually exclusive with --select-all, --only / --only-from, "
+                        "and --non-interactive.")
+    p.add_argument("--select-all", action="store_true", dest="select_all",
+                   help="Skip the interactive picker and process EVERY discovered "
+                        ".mdl file in the source. This was the historical default "
+                        "before the picker became interactive-by-default. Use this "
+                        "for unattended runs that should rename every model in the "
+                        "source (typically combined with --apply and either --game "
+                        "or a project root). Mutually exclusive with --only / "
+                        "--only-from. Implied by --non-interactive when no other "
+                        "selection flag is given.")
     p.add_argument("--non-interactive", "--batch", dest="non_interactive",
                    action="store_true",
-                   help="Disable ALL interactive prompts. Any value not present on the "
-                        "command line takes its default: prefix='mod_', suffix='', "
-                        "apply=False, keep=False, p3a=False (or True in --game mode), "
-                        "output='<project>_modded' next to the source (or "
-                        "'<cwd>/kuro_mdl_rename_output.p3a' in --game mode -- placed "
-                        "in the directory the script was run from, not the game "
-                        "folder). Mutually exclusive with --rename and with --select.")
+                   help="Disable ALL interactive prompts. With no other selection flag "
+                        "given this implies --select-all (process every discovered "
+                        ".mdl). Any value not present on the command line takes its "
+                        "default: prefix='mod_', suffix='', apply=False, keep=False, "
+                        "p3a=False (or True in --game mode), output='<project>_modded' "
+                        "next to the source (or '<cwd>/kuro_mdl_rename_output.p3a' in "
+                        "--game mode -- placed in the directory the script was run "
+                        "from, not the game folder). Mutually exclusive with --rename.")
     p.add_argument("--log", default=None,
                    help="Log file path (default: kuro_mdl_rename.log next to this script).")
     p.add_argument("--no-color", action="store_true",
@@ -4030,19 +4654,34 @@ def main(argv=None):
         )
         return 2
 
-    if args.select and args.non_interactive:
+    # Mutex: --select-all conflicts with --only / --only-from (you either
+    # select EVERY mdl or filter to a list — not both). It does NOT conflict
+    # with --non-interactive (in fact --non-interactive implies it when no
+    # other selection flag is set).
+    if args.select_all and (args.only or args.only_from):
         sys.stderr.write(
-            "ERROR: --select and --non-interactive are mutually exclusive "
-            "(--select is itself an interactive feature).\n"
+            "ERROR: --select-all cannot be combined with --only / --only-from. "
+            "Drop one or the other.\n"
         )
         return 2
 
-    if args.select and (args.only or args.only_from):
+    # Mutex: --select-all and --select (the now-deprecated explicit picker
+    # flag) contradict each other. We keep the error rather than silently
+    # picking one.
+    if args.select_all and args.select:
         sys.stderr.write(
-            "ERROR: --select cannot be combined with --only / --only-from. "
-            "Use one or the other.\n"
+            "ERROR: --select-all (process every mdl) and --select (open the "
+            "interactive picker) are mutually exclusive. The picker is now "
+            "the default — drop one of the two.\n"
         )
         return 2
+
+    # In --non-interactive mode WITHOUT any selection flag, the picker can't
+    # run (it needs a TTY) and there's no --only filter to apply. The legacy
+    # behaviour was "process every mdl", so silently imply --select-all.
+    if args.non_interactive and not (
+        args.select_all or args.only or args.only_from):
+        args.select_all = True
 
     # ---- Step 0a: GAME-DIRECTORY mode? Build a multi-archive index. ------
     # When --game is given (with or without an explicit path), we treat the
@@ -4261,13 +4900,94 @@ def main(argv=None):
     except FileNotFoundError as e:
         # User-friendly error path -- no Python traceback for problems we
         # can describe in plain English (e.g. nothing to process).
-        sys.stderr.write("ERROR: {}\n".format(e))
+        msg = str(e)
+        # If the user invoked single-source mode (no --game) and we hit the
+        # "could not find anything to process" branch, lead with a prominent
+        # banner suggesting --game mode -- this is by far the most common
+        # confusion (a user typing the script's name in a random folder).
+        if game_idx is None and "could not find anything to process" in msg:
+            _print_no_source_banner(args)
+        else:
+            sys.stderr.write(_red("ERROR: ") + msg + "\n")
         return 1
     finally:
         # Always clean up the transient P3A extraction directory (or
         # game-dir scratch directory).
         if src_extract_dir and os.path.exists(src_extract_dir):
             shutil.rmtree(src_extract_dir, ignore_errors=True)
+
+
+def _print_no_source_banner(args):
+    """Print the friendly error shown when the script was run in a directory
+    that contains neither an `asset/` tree nor a .p3a archive. Leads with a
+    prominent suggestion to use --game mode (the primary workflow), since
+    that's almost always what the user actually wanted."""
+    cwd = os.path.abspath(args.project) if args.project else os.getcwd()
+    sys.stderr.write("\n")
+    # Banner: yellow warning header.
+    sys.stderr.write(_bold(_yellow(
+        "============================================================")) + "\n")
+    sys.stderr.write(_bold(_yellow(
+        "  No project / archive found in this directory.")) + "\n")
+    sys.stderr.write(_bold(_yellow(
+        "============================================================")) + "\n")
+    sys.stderr.write(_dim(
+        "  You ran the script in single-project / single-archive mode\n"
+        "  (the legacy mode), pointing at:\n"))
+    sys.stderr.write("    " + _cyan(cwd) + "\n")
+    sys.stderr.write(_dim(
+        "  ...and there's no extracted ") + _bold("asset/") + _dim(
+        " tree or ") + _bold(".p3a") + _dim(" archive\n"
+        "  here to work on.\n"))
+    sys.stderr.write("\n")
+    # Prominent hint: did you mean --game?
+    sys.stderr.write("  " + _bold(_green(
+        "Did you mean to use --game mode?")) + " "
+        + _dim("(the primary workflow)") + "\n")
+    sys.stderr.write(_dim(
+        "  --game points at the WHOLE Trails / ED9 game install (the\n"
+        "  folder with many top-level .p3a archives) and lets you build\n"
+        "  a mod by picking the .mdl files interactively:\n"))
+    sys.stderr.write("\n")
+    sys.stderr.write("    " + _bold(_green(
+        "py kuro_mdl_rename.py --game \"D:\\Steam\\...\\TrailsXYZ\" --apply")) + "\n")
+    sys.stderr.write("\n")
+    sys.stderr.write(_dim(
+        "  If the script lives inside the game folder itself, ")
+        + _bold("--game") + _dim(" alone\n"
+        "  (no path) is enough:\n"))
+    sys.stderr.write("    " + _bold(_green(
+        "py kuro_mdl_rename.py --game --apply")) + "\n")
+    sys.stderr.write("\n")
+    sys.stderr.write(_dim(
+        "  Single-project / single-archive mode (what you tried) expects\n"
+        "  the source to be either:\n"
+        "    - an ") + _bold("asset/") + _dim(" folder (an extracted Kuro project tree), or\n"
+        "    - one or more ") + _bold(".p3a") + _dim(" files in this directory, or\n"
+        "    - the path to one of those passed as an argument:\n"))
+    sys.stderr.write("        " + _cyan(
+        "py kuro_mdl_rename.py C:\\path\\to\\project") + "\n")
+    sys.stderr.write("        " + _cyan(
+        "py kuro_mdl_rename.py C:\\path\\to\\archive.p3a") + "\n")
+    sys.stderr.write("\n")
+    # Listing of what IS in the directory, in dim text so it doesn't
+    # overshadow the --game hint.
+    try:
+        entries = sorted(os.listdir(cwd))
+    except OSError:
+        entries = []
+    if entries:
+        sys.stderr.write(_dim("  What's actually in this directory:") + "\n")
+        for name in entries[:20]:
+            full = os.path.join(cwd, name)
+            tag = "<DIR>" if os.path.isdir(full) else "     "
+            sys.stderr.write(_dim("    {}  {}".format(tag, name)) + "\n")
+        if len(entries) > 20:
+            sys.stderr.write(_dim(
+                "    ... ({} more entries)".format(len(entries) - 20)) + "\n")
+    else:
+        sys.stderr.write(_dim("  (this directory is empty)") + "\n")
+    sys.stderr.write("\n")
 
 
 def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
@@ -4303,17 +5023,17 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
     # discovered .mdl, identical to the pre-existing default behaviour. The
     # filtering helpers operate purely on os.path.basename(), so they work
     # equally well on real on-disk paths and on virtual P3A entry paths.
+    # Decision: what subset of `all_mdls` do we process?
+    #
+    #   * --only / --only-from   -> name/glob filter, no picker
+    #   * --select-all           -> every discovered mdl, no picker
+    #   * (anything else)        -> interactive picker (the default)
+    #
+    # The picker is the default precisely so the user is never surprised by
+    # a 26000-mdl run on a real Trails install — they get to choose.
     mdls = list(all_mdls)
-    if args.select:
-        try:
-            mdls = _interactive_select_mdls(all_mdls)
-        except (KeyboardInterrupt, EOFError):
-            sys.stderr.write("\nCancelled.\n")
-            return 130
-        except SystemExit as e:
-            sys.stderr.write("{}\n".format(e))
-            return 1
-    elif args.only or args.only_from:
+    if args.only or args.only_from:
+        # CLI-provided list. The picker is bypassed entirely.
         requested = list(_split_only_args(args.only))
         if args.only_from:
             try:
@@ -4343,6 +5063,33 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
             sys.stderr.write("ERROR: --only matched no .mdl files in the project.\n")
             return 1
         mdls = selected
+    elif args.select_all:
+        # Explicit "process every mdl". No picker.
+        mdls = list(all_mdls)
+    else:
+        # Default: open the interactive picker. If stdin isn't a TTY we
+        # can't actually prompt, so silently fall back to "process every
+        # mdl" with a warning rather than blocking on a read that will
+        # never get input. This keeps simple scripted invocations like
+        # `echo | py kuro_mdl_rename.py --game --apply` working as the
+        # legacy "process everything" default.
+        if not _is_interactive():
+            sys.stderr.write(
+                "Warning: stdin is not a terminal -- the interactive picker "
+                "needs a TTY. Falling back to processing every .mdl file. "
+                "Pass --select-all to silence this warning, or --only / "
+                "--only-from to filter to a list.\n")
+            mdls = list(all_mdls)
+            args.select_all = True  # so the log message reflects what happened
+        else:
+            try:
+                mdls = _interactive_select_mdls(all_mdls)
+            except (KeyboardInterrupt, EOFError):
+                sys.stderr.write("\nCancelled.\n")
+                return 130
+            except SystemExit as e:
+                sys.stderr.write("{}\n".format(e))
+                return 1
     filtered_to_subset = (len(mdls) != len(all_mdls))
     total_discovered = len(all_mdls)
 
@@ -4543,19 +5290,24 @@ def _run_main(args, src_p3a_path, src_extract_dir, game_idx=None):
     if filtered_to_subset:
         # Mention how the subset was chosen so the log makes the run
         # reproducible without having to consult the CLI line.
-        if args.select:
-            sel_source = "--select"
-        elif args.only and args.only_from:
+        if args.only and args.only_from:
             sel_source = "--only + --only-from"
         elif args.only_from:
             sel_source = "--only-from"
-        else:
+        elif args.only:
             sel_source = "--only"
+        else:
+            sel_source = "interactive picker"
         LOG.info("MDL selection      : %s %s",
                  _bold("subset"),
                  _dim("({})".format(sel_source)))
     else:
-        LOG.info("MDL selection      : %s", _dim("all .mdl files (no filter)"))
+        if args.select_all:
+            LOG.info("MDL selection      : %s",
+                     _dim("all .mdl files (--select-all)"))
+        else:
+            LOG.info("MDL selection      : %s",
+                     _dim("all .mdl files (no filter)"))
     LOG.info("Log file           : %s", _dim(log_path))
     if filtered_to_subset:
         LOG.info("Discovered %s .mdl file(s); selected %s for processing.",
