@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "s16",
+        "short1": "s16",
+        "int1": "s32",
+        "file_name1": "ptr_str_utf8",
+        "file_name2": "ptr_str_utf8",
+        "tab_name": "ptr_str_utf8",
+        "empty_text_offset": "ptr_str_utf8",
+        "long1": "s64"
+    }
+}

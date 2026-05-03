@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "difficulty_id": "u32",
+        "player_damage_multiplier": "u32",
+        "enemmy_damage_muultiplier": "u32",
+        "player_stun_damage_multiplier": "f32"
+    }
+}

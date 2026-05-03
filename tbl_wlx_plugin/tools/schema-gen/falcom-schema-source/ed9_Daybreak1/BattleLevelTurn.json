@@ -1,0 +1,11 @@
+{
+    "version": 1,
+    "schema": {
+        "difficulty_id": "u32",
+        "player_damage_multiplier": "u32",
+        "enemy_damage_multiplier": "u32",
+        "hp_or_unknown_multi_1": "u32",
+        "hp_or_unknown_multi_2": "u32",
+        "enemy_spd_multiplier": "u32"
+    }
+}

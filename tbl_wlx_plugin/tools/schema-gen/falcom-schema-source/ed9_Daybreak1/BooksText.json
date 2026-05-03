@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "book_id": "s16",
+        "line_id": "s32",
+        "empty1": "s16",
+        "book_text": "ptr_str_utf8"
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "schema": {
+        "name": "ptr_str_utf8",
+        "int1": "s32",
+        "int2": "s32",
+        "int3": "s32",
+        "int4": "s32",
+        "int5": "s32",
+        "int6": "s32"
+    }
+}

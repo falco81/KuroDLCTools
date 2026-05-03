@@ -1,0 +1,18 @@
+{
+    "version": 1,
+    "schema": {
+        "int0": "u32",
+        "int1": "s32",
+        "text": "ptr_str_utf8",
+        "float0": "f32",
+        "float1": "f32",
+        "float2": "f32",
+        "float3": "f32",
+        "float4": "f32",
+        "float5": "f32",
+        "float6": "f32",
+        "float7": "f32",
+        "float8": "f32",
+        "float9": "f32"
+    }
+}

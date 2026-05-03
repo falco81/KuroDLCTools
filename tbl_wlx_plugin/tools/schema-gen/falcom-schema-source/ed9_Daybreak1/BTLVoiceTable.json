@@ -1,0 +1,11 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_d24_1": "d24",
+        "unk_arr_u16_1": "arr_u16",
+        "unk_d4_1": "d4",
+        "unk_arr_u32_1": "arr_u32",
+        "unk_d4_2": "d4",
+        "unk_arr_u8": "arr_u8"
+    }
+}

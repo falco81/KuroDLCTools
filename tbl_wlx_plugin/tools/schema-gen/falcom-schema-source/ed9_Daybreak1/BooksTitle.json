@@ -1,0 +1,11 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "s16",
+        "int1": "s32",
+        "empty1": "s16",
+        "title": "ptr_str_utf8",
+        "file_name": "ptr_str_utf8",
+        "long2": "s64"
+    }
+}

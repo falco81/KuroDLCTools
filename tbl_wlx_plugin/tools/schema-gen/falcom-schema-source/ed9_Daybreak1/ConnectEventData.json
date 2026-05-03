@@ -1,0 +1,15 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "int1": "s32",
+        "long1": "s64",
+        "connect_name": "ptr_str_utf8",
+        "connect_description": "ptr_str_utf8",
+        "long2": "s64",
+        "scena_array1": "arr_u16",
+        "empty1": "s32",
+        "scena_array2": "arr_u16",
+        "int2": "s32"
+    }
+}

@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "int1": "s32",
+        "int2": "s32",
+        "long1": "s64",
+        "text": "ptr_str_utf8"
+    }
+}

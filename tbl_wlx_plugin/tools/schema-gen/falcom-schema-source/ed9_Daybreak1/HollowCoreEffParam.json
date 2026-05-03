@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "id_reference": "u32",
+        "long1": "u64",
+        "effect_name": "ptr_str_utf8"
+    }
+}

@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u64",
+        "bgm_track": "ptr_str_utf8",
+        "unk0": "f32",
+        "unk1": "u32"
+    }
+}

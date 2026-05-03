@@ -1,0 +1,19 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "s64",
+        "file_name": "ptr_str_utf8",
+        "float1": "f32",
+        "float2": "f32",
+        "float3": "f32",
+        "float4": "f32",
+        "float5": "f32",
+        "float6": "f32",
+        "float7": "f32",
+        "float8": "f32",
+        "float9": "f32",
+        "float10": "f32",
+        "float11": "f32",
+        "float12": "f32"
+    }
+}

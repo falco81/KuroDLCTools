@@ -1,0 +1,7 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_d8_1": "d8",
+        "unk_arr_u32_1": "arr_u32"
+    }
+}

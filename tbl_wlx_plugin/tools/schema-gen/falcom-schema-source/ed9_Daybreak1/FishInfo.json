@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_d8_1": "d8",
+        "unk_ptr_str_utf8_1": "ptr_str_utf8",
+        "unk_ptr_str_utf8_2": "ptr_str_utf8",
+        "unk_d56_1": "d56",
+        "unk_ptr_str_utf8_3": "ptr_str_utf8"
+    }
+}

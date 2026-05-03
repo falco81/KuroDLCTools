@@ -1,0 +1,15 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "int1": "u32",
+        "long1": "u64",
+        "item_name": "ptr_str_utf8",
+        "item_description": "ptr_str_utf8",
+        "byte1": "s8",
+        "byte2": "s8",
+        "byte3": "s8",
+        "byte4": "s8",
+        "empty1": "u32"
+    }
+}

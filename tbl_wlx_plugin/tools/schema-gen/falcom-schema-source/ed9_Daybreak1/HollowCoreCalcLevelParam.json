@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "int1": "u32",
+        "float1": "f32",
+        "int2": "u32",
+        "float2": "f32",
+        "float3": "f32"
+    }
+}

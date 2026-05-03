@@ -1,0 +1,16 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "int1": "s32",
+        "toffset1": "ptr_str_utf8",
+        "empty1": "s64",
+        "toffset2": "ptr_str_utf8",
+        "long1": "s64",
+        "scena_flag_array": "arr_u16",
+        "int2": "s32",
+        "long2": "s64",
+        "voice_subtitle": "ptr_str_utf8",
+        "empty2": "s64"
+    }
+}

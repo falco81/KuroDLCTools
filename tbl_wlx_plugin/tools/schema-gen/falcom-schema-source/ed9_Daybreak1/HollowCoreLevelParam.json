@@ -1,0 +1,23 @@
+{
+    "version": 1,
+    "schema": {
+        "item_id": "u32",
+        "level": "u32",
+        "int1": "s32",
+        "mat": "u32",
+        "ep": "u32",
+        "effects": {
+            "repeat": 7,
+            "type": {
+                "id": "u32",
+                "value1": "u32",
+                "value2": "u32",
+                "value3": "u32",
+                "value4": "u32",
+                "value5": "u32",
+                "value6": "u32"
+            }
+        },
+        "description": "ptr_str_utf8"
+    }
+}

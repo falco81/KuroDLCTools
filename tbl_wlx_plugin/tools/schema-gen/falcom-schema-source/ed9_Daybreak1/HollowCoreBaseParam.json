@@ -1,0 +1,23 @@
+{
+    "version": 1,
+    "schema": {
+        "item_id": "u32",
+        "int1": "u32",
+        "int2": "u32",
+        "byte1": "s8",
+        "byte2": "s8",
+        "empty1": "s16",
+        "flag": "ptr_str_utf8",
+        "long1": "u64",
+        "title": "ptr_str_utf8",
+        "int3": "u32",
+        "float1": "f32",
+        "float2": "f32",
+        "float3": "f32",
+        "empty2": "u32",
+        "float4": "f32",
+        "name": "arr_u32",
+        "int4": "u32",
+        "name2": "ptr_str_utf8"
+    }
+}

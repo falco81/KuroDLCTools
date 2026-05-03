@@ -1,0 +1,7 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "value": "u32"
+    }
+}

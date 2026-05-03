@@ -1,0 +1,17 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_d8_1": "d8",
+        "unk_ptr_str_utf8_1": "ptr_str_utf8",
+        "unk_ptr_str_utf8_2": "ptr_str_utf8",
+        "unk_d8_2": "d8",
+        "unk_ptr_str_utf8_3": "ptr_str_utf8",
+        "unk_ptr_str_utf8_4": "ptr_str_utf8",
+        "unk_d8_3": "d8",
+        "unk_ptr_str_utf8_5": "ptr_str_utf8",
+        "unk_d8_4": "d8",
+        "unk_ptr_str_utf8_6": "ptr_str_utf8",
+        "unk_d16_1": "d16",
+        "unk_ptr_str_utf8_7": "ptr_str_utf8"
+    }
+}

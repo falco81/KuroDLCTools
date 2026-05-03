@@ -1,0 +1,20 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u64",
+        "char_full_name": "ptr_str_utf8",
+        "char_first_name": "ptr_str_utf8",
+        "long1": "u64",
+        "scena_file": "ptr_str_utf8",
+        "affiliation": "ptr_str_utf8",
+        "occupation": "ptr_str_utf8",
+        "byte1": "s8",
+        "byte2": "s8",
+        "byte3": "s8",
+        "byte4": "s8",
+        "byte5": "s8",
+        "byte6": "s8",
+        "byte7": "s8",
+        "byte8": "s8"
+    }
+}

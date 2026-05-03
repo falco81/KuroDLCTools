@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_d8_1": "d8",
+        "unk_arr_u16_1": "arr_u16",
+        "unk_d4_1": "d4",
+        "unk_arr_u16_2": "arr_u16"
+    }
+}

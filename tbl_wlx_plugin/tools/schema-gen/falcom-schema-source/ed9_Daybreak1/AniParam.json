@@ -1,0 +1,6 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_ptr_str_utf8": "ptr_str_utf8"
+    }
+}

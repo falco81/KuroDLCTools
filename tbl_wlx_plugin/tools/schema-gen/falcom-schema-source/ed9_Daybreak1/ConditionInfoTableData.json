@@ -1,0 +1,26 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "int1": "u32",
+        "state_name": "ptr_str_utf8",
+        "int2": "u32",
+        "int3": "u32",
+        "int4": "u32",
+        "effects": {
+            "repeat": 3,
+            "type": {
+                "value1": "u32",
+                "value2": "u32",
+                "value3": "u32",
+                "value4": "u32"
+            }
+        },
+        "float1": "f32",
+        "int5": "s32",
+        "int6": "s32",
+        "int7": "s32",
+        "int8": "s32",
+        "flag": "ptr_str_utf8"
+    }
+}

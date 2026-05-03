@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "byte1": "s8",
+        "byte2": "s8",
+        "byte3": "s8",
+        "byte4": "s8"
+    }
+}

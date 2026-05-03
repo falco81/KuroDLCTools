@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "s16",
+        "int": "u32",
+        "empty": "u16",
+        "unknown": "arr_u32",
+        "int2": "u32"
+    }
+}
