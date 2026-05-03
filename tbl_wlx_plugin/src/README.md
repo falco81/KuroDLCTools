@@ -1,7 +1,7 @@
 # TBL Lister Plugin — source distribution
 
 This is the source code for the **TBL WLX Lister plugin** for Total
-Commander, version 1.3.37. The plugin reads, browses, and edits Falcom
+Commander, version 1.3.43. The plugin reads, browses, and edits Falcom
 `#TBL` data tables (Trails of Cold Steel, Trails through Daybreak,
 Trails in the Sky 1, Ys X, etc.).
 
