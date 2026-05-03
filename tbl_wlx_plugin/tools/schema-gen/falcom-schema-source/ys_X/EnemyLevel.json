@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "schema": {
+        "map": "ptr_str_utf8",
+        "character_id_array": "arr_u32",
+        "unk_u32_1": "u32",
+        "level_array_1": "arr_u32",
+        "unk_u32_2": "u32",
+        "level_array_2": "arr_u32",
+        "unk_u32_3": "u32"
+    }
+}

@@ -1,0 +1,15 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "unk_u32_1": "u32",
+        "rune_stone_name": "ptr_str_utf8",
+        "rune_stone_description": "ptr_str_utf8",
+        "rune_stone_text": "ptr_str_utf8",
+        "rune_stone_diary_image": "ptr_str_utf8",
+        "rune_stone_scene_image": "ptr_str_utf8",
+        "float": "f32",
+        "unk_u32_2": "u32",
+        "unk_u64": "u64"
+    }
+}

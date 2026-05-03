@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_u32_1": "u32",
+        "unk_u32_2": "u32",
+        "flag": "ptr_str_utf8",
+        "unk_u32_3": "u32",
+        "unk_u32_4": "u32"
+    }
+}

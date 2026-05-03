@@ -1,0 +1,22 @@
+{
+    "version": 1,
+    "schema": {
+	"mana_material_id": "u32",
+	"unk_u32": "u32",
+	"red_rank_1_chance": "f32",
+	"red_rank_2_chance": "f32",
+	"red_rank_3_chance": "f32",
+	"blue_rank_1_chance": "f32",
+	"blue_rank_2_chance": "f32",
+	"blue_rank_3_chance": "f32",
+	"yellow_rank_1_chance": "f32",
+	"yellow_rank_2_chance": "f32",
+	"yellow_rank_3_chance": "f32",
+	"purple_rank_1_chance": "f32",
+	"purple_rank_2_chance": "f32",
+	"purple_rank_3_chance": "f32",
+	"rainbow_rank_1_chance": "f32",
+	"rainbow_rank_2_chance": "f32",
+	"rainbow_rank_3_chance": "f32"
+    }
+}

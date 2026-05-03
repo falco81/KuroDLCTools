@@ -1,0 +1,8 @@
+{
+    "version": 1,
+    "schema": {
+        "region_id": "u32",
+        "island_id": "u32",
+        "area_id": "u32"
+    }
+}

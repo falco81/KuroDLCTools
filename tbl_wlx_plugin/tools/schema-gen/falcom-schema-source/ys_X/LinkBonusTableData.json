@@ -1,0 +1,28 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_u32_1": "u32",
+        "unk_u32_2": "u32",
+        "ability_icon": "u32",
+        "unk_u32_3": "u32",
+        "ability_name": "ptr_str_utf8",
+        "ability_name_alt": "ptr_str_utf8",
+        "detailed_desc": "ptr_str_utf8",
+        "detailed_desc_alt": "ptr_str_utf8",
+        "simple_desc": "ptr_str_utf8",
+        "simple_desc_alt": "ptr_str_utf8",
+        "ability_id": "u32",
+        "level_1_value": "f32",
+        "level_2_value": "f32",
+        "level_3_value": "f32",
+        "level_4_value": "f32",
+        "level_5_value": "f32",
+        "level_6_value": "f32",
+        "level_7_value": "f32",
+        "level_8_value": "f32",
+        "level_9_value": "f32",
+        "level_10_value": "f32",
+        "unk_u32_4": "u32",
+        "text": "ptr_str_utf8"
+    }
+}

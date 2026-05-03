@@ -1,0 +1,45 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u64",
+        "name": "ptr_str_utf8",
+        "option_1": "ptr_str_utf8",
+        "option_2": "ptr_str_utf8",
+        "option_3": "ptr_str_utf8",
+        "option_4": "ptr_str_utf8",
+        "option_5": "ptr_str_utf8",
+        "option_6": "ptr_str_utf8",
+        "option_7": "ptr_str_utf8",
+        "option_8": "ptr_str_utf8",
+        "option_1_desc": "ptr_str_utf8",
+        "option_2_desc": "ptr_str_utf8",
+        "option_3_desc": "ptr_str_utf8",
+        "option_4_desc": "ptr_str_utf8",
+        "option_5_desc": "ptr_str_utf8",
+        "option_6_desc": "ptr_str_utf8",
+        "option_7_desc": "ptr_str_utf8",
+        "option_8_desc": "ptr_str_utf8",
+        "option_1_desc_2": "ptr_str_utf8",
+        "option_2_desc_2": "ptr_str_utf8",
+        "option_3_desc_2": "ptr_str_utf8",
+        "option_4_desc_2": "ptr_str_utf8",
+        "option_5_desc_2": "ptr_str_utf8",
+        "option_6_desc_2": "ptr_str_utf8",
+        "option_7_desc_2": "ptr_str_utf8",
+        "option_8_desc_2": "ptr_str_utf8",				
+        "unk_u32_1": {
+            "repeat": 2,
+            "type": "u32"
+           },
+        "float1": "f32",
+        "floats": {
+            "repeat": 3,
+            "type": "u32"
+           },
+        "floats2": {
+            "repeat": 8,
+            "type": "f32"
+           },
+        "text": "ptr_str_utf8"
+    }
+}

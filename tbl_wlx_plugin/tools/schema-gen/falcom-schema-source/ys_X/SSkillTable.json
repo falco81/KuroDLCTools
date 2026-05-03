@@ -1,0 +1,32 @@
+{
+    "version": 1,
+    "schema": {
+        "character_restriction": "s32",
+        "id": "s32",
+        "unk_u32_1": "u32",
+        "unk_u32_2": "u32",
+        "unk_u32_3": "u32",
+        "unk_u32_4": "u32",
+        "unk_u32_5": "u32",
+        "unk_u32_6": "u32",
+        "unk_u32_7": "u32",
+        "unk_u32_8": "u32",
+        "name": "ptr_str_utf8",
+        "animation": "ptr_str_utf8",
+        "description": "ptr_str_utf8",
+        "internal_description": "ptr_str_utf8",
+        "mastery_requirement": "u32",
+        "sp": "u32",
+        "pow": "u32",
+        "str": "f32",
+        "brk": "f32",
+        "damage_multiplier": "f32",
+        "float1": "f32",
+        "float2": "f32",
+        "float3": "f32",
+        "trait_1": "u32",
+        "trait_2": "u32",
+        "trait_3": "u32",
+        "internal_name": "ptr_str_utf8"
+    }
+}

@@ -1,0 +1,24 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "character_id": "u32",
+        "name": "ptr_str_utf8",
+        "image": "ptr_str_utf8",
+        "ui_text": "ptr_str_utf8",
+        "unk_u32_1": "u32",
+        "adol_weapon": "u32",
+        "karja_weapon": "u32",
+        "adol_armor": "u32",
+        "karja_armor": "u32",
+        "unk_u32_2": "u32",
+        "map": "ptr_str_utf8",
+        "text": "ptr_str_utf8",
+        "target_time_easy": "u32",
+        "target_time_normal": "u32",
+        "target_time_hard": "u32",
+        "target_time_nightmare": "u32",
+        "target_time_inferno": "u32",
+        "unk_u32_3": "u32"
+    }
+}

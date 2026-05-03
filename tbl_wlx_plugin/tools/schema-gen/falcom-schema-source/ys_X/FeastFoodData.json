@@ -1,0 +1,21 @@
+{
+    "version": 1,
+    "schema": {
+        "item_id": "u32",
+        "recipe_id": "u32",
+        "u32_1": "u32",
+        "u32_2": "u32",
+        "u32_3": "u32",
+        "basic_ingredients_req": "u32",
+        "float1": "f32",
+        "float2": "f32",
+        "effects": {
+            "repeat": 3,
+            "type": {
+                "effect_id": "u32",
+                "effect_value": "f32"
+              }
+           },   
+        "unk_u32": "u32"
+    }
+}

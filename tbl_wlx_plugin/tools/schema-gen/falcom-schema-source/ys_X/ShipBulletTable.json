@@ -1,0 +1,27 @@
+{
+    "version": 1,
+    "schema": {
+        "item_id": "u32",
+        "float1": "f32",
+        "float2": "f32",
+        "str": "f32",
+        "brk": "f32",
+        "unk_u32_1": "u32",
+        "unk_u32_2": "u32",
+        "float3": "f32",
+        "load_count": "u32",
+        "float4": "f32",
+        "float5": "f32",
+        "float6": "f32",
+        "unk_u32_3": "u32",
+        "unk_u32_4": "u32",
+        "animation": "ptr_str_utf8",
+        "unk_u32_5": "u32",
+        "unk_u32_6": "u32",
+        "unk_u32_7": "u32",
+        "float7": "f32",
+        "float8": "f32",
+        "float9": "f32",
+        "bullet_vfx": "ptr_str_utf8"
+    }
+}

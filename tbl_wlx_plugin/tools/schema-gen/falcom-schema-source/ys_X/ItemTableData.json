@@ -1,0 +1,46 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "icon": "u32",
+        "name": "ptr_str_utf8",
+        "desc_1": "ptr_str_utf8",
+        "desc_2": "ptr_str_utf8",
+        "sell_price": "u32",
+        "type": "u16",
+        "unk_u16_1": "u16",
+        "unk_u32_1": "u32",
+        "empty1": "u32",
+        "empty2": "u32",
+        "empty3": "u32",
+        "category": "u16",
+        "empty4": "u16",            
+        "sort_id": "u32",
+        "unk_u16_2": "u16",       
+        "empty5": "u16", 
+        "empty6": "u16",
+        "empty7": "u16",
+        "obtain_type": "ptr_str_utf8",
+        "obtain_amount": "f32",
+        "unk_u32_2": "u32",
+        "hp": "u32",
+        "str": "u32",
+        "break": "u32",
+        "def": "u32",
+        "vit": "u32",
+        "luck": "u32",
+        "crit": "u32",
+        "eva": "u32",
+        "dmg_dealt": "u32",
+        "dmg_received": "u32",
+        "effects": {
+            "repeat": 4,
+            "type": {
+                "id": "u32",
+                "value": "f32"
+            }
+          },
+        "text": "ptr_str_utf8",
+        "unk_u64": "u64"
+    }
+}

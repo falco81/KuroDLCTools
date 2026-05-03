@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "item_id": "u32",
+        "empty": "u32",
+        "name": "ptr_str_utf8",
+        "quantity": "u32",
+        "unk_u32": "u32"
+     }  
+  }    

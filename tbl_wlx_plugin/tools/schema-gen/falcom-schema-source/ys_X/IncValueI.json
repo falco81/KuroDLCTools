@@ -1,0 +1,7 @@
+{
+    "version": 1,
+    "schema": {
+        "name": "ptr_str_utf8",
+        "value": "u64"
+    }
+}

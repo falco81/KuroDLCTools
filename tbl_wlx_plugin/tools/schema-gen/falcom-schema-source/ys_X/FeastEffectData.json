@@ -1,0 +1,8 @@
+{
+    "version": 1,
+    "schema": {
+	"effect_id": "u32",
+	"unk_u32": "u32",
+	"effect_name": "ptr_str_utf8"
+    }
+}

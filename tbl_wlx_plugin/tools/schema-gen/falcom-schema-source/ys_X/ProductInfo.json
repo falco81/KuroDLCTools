@@ -1,0 +1,21 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_u32_1": "u32",
+        "shop_id": "u32",
+        "unk_s32_1": "s32",
+        "unk_s32_2": "s32",
+        "array1": "arr_u32",
+        "unk_u32_2": "u32",
+        "array2": "arr_u32",
+        "unk_u32_3": "u32",
+        "array3": "arr_u32",
+        "unk_u32_4": "u32",
+        "unk_s32_3": "s32",
+        "unk_s32_4": "s32",
+        "unk_s32_5": "s32",
+        "unk_s32_6": "s32",
+        "text1": "ptr_str_utf8",
+        "text2": "ptr_str_utf8"
+    }
+}

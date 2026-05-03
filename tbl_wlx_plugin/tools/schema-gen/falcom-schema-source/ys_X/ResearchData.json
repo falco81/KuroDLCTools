@@ -1,0 +1,25 @@
+{
+    "version": 1,
+    "schema": {
+        "category": "u32",
+        "unk_u32_1": "u32",
+        "unk_u32_2": "u32",
+        "float1": "f32",
+        "float2": "f32",
+        "empty": "u32",
+        "picture": "ptr_str_utf8",
+        "profile": {
+            "repeat": 7,
+            "type": "ptr_str_utf8"
+            },
+        "observations": "ptr_str_utf8",
+        "impressions": {
+            "repeat": 2,
+            "type": {
+                "character_id": "u64",
+                "text": "ptr_str_utf8"
+                }  
+              },  
+        "unknown_u64": "u64"
+    }
+}

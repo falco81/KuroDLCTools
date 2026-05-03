@@ -1,0 +1,17 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "unk_u32_1": "u32",
+        "bgm_file_main": "ptr_str_utf8",
+        "bgm_file_alt": "ptr_str_utf8",
+        "file_1": "ptr_str_utf8",
+        "file_2": "ptr_str_utf8",
+        "volume": "f32",
+        "float1": "f32",
+        "float2": "f32",
+        "float3": "f32",
+        "float4": "f32",
+        "unk_u32_2": "u32"
+    }
+}

@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_u32_1": "u32",
+        "unk_u32_2": "u32",
+        "text1": "ptr_str_utf8",
+        "text2": "ptr_str_utf8"
+    }
+}

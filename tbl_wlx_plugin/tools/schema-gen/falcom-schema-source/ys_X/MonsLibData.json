@@ -1,0 +1,15 @@
+{
+    "version": 1,
+    "schema": {
+        "character_id": "u64",
+        "name": "ptr_str_utf8",
+        "unk_u32_1": "u32",
+        "unk_u32_2": "u32",
+        "image": "ptr_str_utf8",
+        "description": "ptr_str_utf8",
+        "unk_u32_3": "u32",
+        "unk_u32_4": "u32",
+        "unk_u32_5": "u32",
+        "unk_u32_6": "u32"
+    }
+}

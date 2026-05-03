@@ -1,0 +1,23 @@
+{
+    "version": 1,
+    "schema": {
+        "area_id": "u32",
+        "island_id": "u32",
+        "travel_point_name": "ptr_str_utf8",
+        "alt_travel_point_name": "ptr_str_utf8",
+        "array1": "arr_u32",
+        "unk_u32_1": "u32",
+        "array2": "arr_u32",
+        "unk_u32_2": "u32",
+        "array3": "arr_u32",
+        "x_pos": "f32",
+        "y_pos": "f32",
+        "z_pos": "f32",
+        "float": "f32",
+        "unk_u32_3": "u32",
+        "text": "ptr_str_utf8",
+        "unk_u32_4": "u32",
+        "unk_u32_5": "u32",
+        "preview_image": "ptr_str_utf8"
+    }
+}

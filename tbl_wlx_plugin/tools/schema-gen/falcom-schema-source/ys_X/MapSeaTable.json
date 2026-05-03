@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "region_id": "u32",
+        "unk_u32": "u32",
+        "map": "ptr_str_utf8",
+        "map_texture": "ptr_str_utf8",
+        "map_name": "ptr_str_utf8"
+    }
+}

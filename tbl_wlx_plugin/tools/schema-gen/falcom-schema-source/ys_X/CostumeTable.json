@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "character_id": "u32",
+        "item_id": "u32",
+        "base_model": "ptr_str_utf8",
+        "equip_model": "ptr_str_utf8"
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "schema": {
+        "text1": "u64",
+        "island_name": "ptr_str_utf8",
+        "island_desc": "ptr_str_utf8",
+        "island_image": "ptr_str_utf8",
+        "array1": "arr_u32",
+        "unk_u32_1": "u32",
+        "array2": "arr_u32",
+        "unk_u32_2": "u32",
+        "text2": "ptr_str_utf8"
+    }
+}

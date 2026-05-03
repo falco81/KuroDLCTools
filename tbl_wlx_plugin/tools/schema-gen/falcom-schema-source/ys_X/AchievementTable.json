@@ -1,0 +1,11 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "unk_u32": "u32",
+        "hidden": "u32",
+        "rarity": "u32",
+        "name": "ptr_str_utf8",
+        "description": "ptr_str_utf8"
+    }
+}

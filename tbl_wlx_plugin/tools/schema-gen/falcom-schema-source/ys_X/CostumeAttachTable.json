@@ -1,0 +1,17 @@
+{
+    "version": 1,
+    "schema": {
+        "character_id": "u32",
+        "unk_u32_1": "u32",
+        "item_id": "s32",
+        "unk_u32_2": "u32",
+        "base_model": "ptr_str_utf8",
+        "equip_model": "ptr_str_utf8",
+        "attach_point": "ptr_str_utf8",
+        "text1": "ptr_str_utf8",
+        "text2": "ptr_str_utf8",
+        "text3": "ptr_str_utf8",
+        "text4": "ptr_str_utf8",
+        "text5": "ptr_str_utf8"
+    }
+}

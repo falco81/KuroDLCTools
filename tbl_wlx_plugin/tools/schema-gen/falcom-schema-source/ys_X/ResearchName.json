@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "unk_u32": "u32",
+        "name": "ptr_str_utf8",
+        "image": "ptr_str_utf8"
+    }    
+}

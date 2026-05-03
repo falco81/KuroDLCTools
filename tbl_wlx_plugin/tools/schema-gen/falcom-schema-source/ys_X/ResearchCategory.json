@@ -1,0 +1,8 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "region_id": "u32",
+        "picture": "ptr_str_utf8"
+    }
+}

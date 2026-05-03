@@ -1,0 +1,18 @@
+{
+    "version": 1,
+    "schema": {
+        "area_id": "u64",
+        "map": "ptr_str_utf8",
+        "minimap": "ptr_str_utf8",
+        "map_name": "ptr_str_utf8",
+        "array1": "arr_u32",
+        "unk_u32_1": "u32",
+        "array2": "arr_u32",
+        "unk_u32_2": "u32",
+        "array3": "arr_u32",
+        "unk_u32_3": "u32",
+        "array4": "arr_u32",
+        "unk_u32_4": "u32",
+        "text": "ptr_str_utf8"
+    }
+}

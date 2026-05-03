@@ -1,0 +1,45 @@
+    {
+        "version": 1,
+        "schema": {
+            "unk_u32_1": "u32",
+            "unk_u16_1": "u16",
+            "priority": "u16",
+            "unk_u32_2": "u32",
+            "unk_u32_3": "u32",
+            "array1": "arr_u32",
+            "unk_u32_4": "u32",
+            "array2": "arr_u32",
+            "unk_u32_5": "u32",
+            "array3": "arr_u32",
+            "unk_u32_6": "u32",
+            "unk_u32_7": "u32",
+            "unk_u32_8": "u32",
+            "name": "ptr_str_utf8",
+            "details": "ptr_str_utf8",
+            "desc_1": "ptr_str_utf8",
+            "desc_2": "ptr_str_utf8",
+            "text1": "ptr_str_utf8",
+            "text2": "ptr_str_utf8",
+            "unlock_1": "ptr_str_utf8",
+            "unlock_2": "ptr_str_utf8",
+            "unlock_3": "ptr_str_utf8",
+            "unlock_4": "ptr_str_utf8",
+            "materials": {
+                "repeat": 4,
+                "type": {
+                    "id": "u32",
+                    "req_amount": "u32"
+                 }    
+             },       
+            "empty1": "u64",
+            "empty2": "u64",    
+            "empty3": "u64",
+            "upgrades": {
+                "repeat": 12,
+                "type": {
+                    "id": "u32",
+                    "value": "u32"
+                }
+            }   
+        }
+    }

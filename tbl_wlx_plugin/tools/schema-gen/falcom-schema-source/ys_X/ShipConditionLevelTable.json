@@ -1,0 +1,8 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_u64": "u64",
+        "text1": "ptr_str_utf8",
+        "text2": "ptr_str_utf8"
+    }
+}
