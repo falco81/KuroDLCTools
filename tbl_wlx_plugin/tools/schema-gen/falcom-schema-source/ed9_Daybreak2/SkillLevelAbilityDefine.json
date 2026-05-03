@@ -1,0 +1,8 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "s64",
+        "bonus1": "ptr_str_utf8",
+        "bonus2": "ptr_str_utf8"
+    }
+}

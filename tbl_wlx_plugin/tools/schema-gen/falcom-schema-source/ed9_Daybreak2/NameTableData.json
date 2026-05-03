@@ -1,0 +1,18 @@
+{
+    "version": 1,
+    "schema": {
+        "character_id": "u64",
+        "name": "ptr_str_utf8",
+        "texture": "ptr_str_utf8",
+        "face": "ptr_str_utf8",
+        "model": "ptr_str_utf8",
+        "long1": "u64",
+        "text1": "ptr_str_utf8",
+        "long2": "s64",
+        "text2": "ptr_str_utf8",
+        "long3": "u64",
+        "text3": "ptr_str_utf8",
+        "text4": "ptr_str_utf8",
+        "text5": "ptr_str_utf8"
+    }
+}

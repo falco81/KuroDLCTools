@@ -1,0 +1,48 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "character_restriction": "s32",
+        "text1": "ptr_str_utf8",
+        "text2": "ptr_str_utf8",
+        "category": "u8",
+        "subcategory": "u8",
+        "icons": "d10",
+        "float1": "f32",
+        "float2": "f32",
+        "effects": {
+            "repeat": 5,
+            "type": {
+                "id": "u32",
+                "value1": "u32",
+                "value2": "u32",
+                "value3": "u32"
+            }
+        },
+        "float3": "f32",
+        "hp": "u32",
+        "ep": "u32",
+        "patk": "u32",
+        "pdef": "u32",
+        "matk": "u32",
+        "mdef": "u32",
+        "str": "u32",
+        "def": "u32",
+        "ats": "u32",
+        "adf": "u32",
+        "agl": "u32",
+        "dex": "u32",
+        "hit": "u32",
+        "eva": "u32",
+        "meva": "u32",
+        "crit": "u32",
+        "spd": "u32",
+        "mov": "u32",
+        "stack_size": "u32",
+        "price": "u32",
+        "animation": "ptr_str_utf8",
+        "name": "ptr_str_utf8",
+        "description": "ptr_str_utf8",
+        "data": "d16"
+    }
+}

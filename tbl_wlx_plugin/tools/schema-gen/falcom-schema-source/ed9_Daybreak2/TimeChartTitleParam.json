@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u64",
+        "arr1": "arr_u16",
+        "empty1": "u32",
+        "arr2": "arr_u16",
+        "empty2": "u32",
+        "title": "ptr_str_utf8",
+        "event": "ptr_str_utf8",
+        "chapter": "ptr_str_utf8",
+        "route": "ptr_str_utf8"
+    }
+}

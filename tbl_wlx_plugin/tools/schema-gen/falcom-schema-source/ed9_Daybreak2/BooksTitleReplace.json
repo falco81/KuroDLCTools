@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u16",
+        "int1": "s32",
+        "short1": "s16",
+        "book_name": "ptr_str_utf8",
+        "file_name": "ptr_str_utf8",
+        "short2": "u16",
+        "short3": "u16",
+        "empty": "s32"
+    }
+}

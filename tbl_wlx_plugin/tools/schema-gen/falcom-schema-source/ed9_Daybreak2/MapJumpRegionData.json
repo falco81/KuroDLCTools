@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u64",
+        "name": "ptr_str_utf8",
+        "flag": "ptr_str_utf8",
+        "float1": "f32",
+        "float2": "f32"
+    }
+}

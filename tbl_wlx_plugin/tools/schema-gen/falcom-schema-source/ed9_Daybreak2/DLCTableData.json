@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "schema": {
+        "int1": "u32",
+        "int2": "u32",
+        "arr1": "arr_u32",
+        "int3": "u32",
+        "arr2": "arr_u32",
+        "int4": "u32",
+        "name": "ptr_str_utf8",
+        "description": "ptr_str_utf8",
+        "text2": "ptr_str_utf8"
+    }
+}

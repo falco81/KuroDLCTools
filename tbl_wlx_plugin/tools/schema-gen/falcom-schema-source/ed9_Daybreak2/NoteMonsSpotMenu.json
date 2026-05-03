@@ -1,0 +1,7 @@
+{
+    "version": 1,
+    "schema": {
+        "long1": "s64",
+        "note_text": "ptr_str_utf8"
+    }
+}

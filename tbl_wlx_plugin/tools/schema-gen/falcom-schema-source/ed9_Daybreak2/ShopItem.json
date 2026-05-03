@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "schema": {
+        "shop_id": "u16",
+        "item_id": "s16",
+        "unknown": "s32",
+        "start_scena_flags": "arr_u16",
+        "empty1": "s32",
+        "end_scena_flags": "arr_u16",
+        "int2": "s32"
+    }
+}

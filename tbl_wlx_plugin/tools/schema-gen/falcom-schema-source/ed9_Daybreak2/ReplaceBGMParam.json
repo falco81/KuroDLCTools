@@ -1,0 +1,15 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "int1": "s32",
+        "flag": "ptr_str_utf8",
+        "track_name_1": "ptr_str_utf8",
+        "track_name_2": "ptr_str_utf8",
+        "ost": "ptr_str_utf8",
+        "sound_file": "ptr_str_utf8",
+        "short1": "u16",
+        "short2": "u16",
+        "float": "f32"
+    }
+}

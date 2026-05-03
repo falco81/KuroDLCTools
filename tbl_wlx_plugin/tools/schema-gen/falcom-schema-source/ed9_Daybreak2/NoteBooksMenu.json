@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u16",
+        "int1": "s32",
+        "empty1": "s16",
+        "note_text": "ptr_str_utf8",
+        "long1": "s64"
+    }
+}

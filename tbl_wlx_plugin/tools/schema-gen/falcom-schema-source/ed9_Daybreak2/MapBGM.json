@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "long1": "s64",
+        "arr1": "arr_u16",
+        "empty1": "u32",
+        "arr2": "arr_u16",
+        "int1": "s32"
+    }
+}

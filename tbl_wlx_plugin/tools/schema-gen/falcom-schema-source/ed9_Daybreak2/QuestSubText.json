@@ -1,0 +1,29 @@
+{
+    "version": 1,
+    "schema": {
+        "this is a dummy schema bc kuro 2 doesn't use this pls add schema if you see this message": "s16",
+        "short2": "s16",
+        "short3": "s16",
+        "short4": "s16",
+        "short5": "s16",
+        "short6": "s16",
+        "short7": "s16",
+        "short8": "s16",
+        "short9": "s16",
+        "short10": "s16",
+        "short11": "s16",
+        "short12": "s16",
+        "short13": "s16",
+        "short14": "s16",
+        "short15": "s16",
+        "short16": "s16",
+        "short17": "s16",
+        "short18": "s16",
+        "short19": "s16",
+        "short20": "s16",
+        "short21": "s16",
+        "short22": "s16",
+        "short23": "s16",
+        "short24": "s16"
+    }
+}

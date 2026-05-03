@@ -1,0 +1,18 @@
+{
+    "version": 1,
+    "schema": {
+        "short0": "u16",
+        "short1": "u16",
+        "short2": "u16",
+        "short3": "u16",
+        "short4": "u16",
+        "short5": "u16",
+        "short6": "u16",
+        "short7": "u16",
+        "long0": "u64",
+        "arr0": "arr_u16",
+        "int0": "u32",
+        "arr1": "arr_u16",
+        "int1": "u32"
+    }
+}

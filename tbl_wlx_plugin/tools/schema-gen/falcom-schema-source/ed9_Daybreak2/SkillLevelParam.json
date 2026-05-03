@@ -1,0 +1,25 @@
+{
+    "version": 1,
+    "schema": {
+        "chr_id": "u16",
+        "skill_id": "u16",
+        "empty1": "u16",
+        "upgrade_type_id": "u16",
+        "empty2": "u16",
+        "lvl_1_param": "u16",
+        "lvl_2_param": "u16",
+        "lvl_3_param": "u16",
+        "lvl_4_param": "u16",
+        "lvl_5_param": "u16",
+        "lvl_6_param": "u16",
+        "lvl_7_param": "u16",
+        "lvl_8_param": "u16",
+        "lvl_9_param": "u16",
+        "lvl_10_param": "u16",
+        "lvl_11_param": "u16",
+        "lvl_12_param": "u16",
+        "lvl_13_param": "u16",
+        "lvl_14_param": "u16",
+        "lvl_15_param": "u16"
+    }
+}

@@ -1,0 +1,32 @@
+{
+    "version": 1,
+    "schema": {
+        "char_id": "s64",
+        "start_scena_flag": "arr_u16",
+        "int1": "u32",
+        "end_scena_flag": "arr_u16",
+        "int2": "u32",
+        "map": "ptr_str_utf8",
+        "X": "f32",
+        "Y": "f32",
+        "Z": "f32",
+        "orientation_angle": "f32",
+        "range_interaction": "f32",
+        "int": "u32",
+        "flt7": "f32",
+        "flt8": "f32",
+        "flt9": "f32",
+        "flt10": "f32",
+        "text1": "ptr_str_utf8",
+        "talk_setting_function": "ptr_str_utf8",
+        "first_animation_function": "ptr_str_utf8",
+        "int3": "u32",
+        "int4": "u32",
+        "talk_function": "ptr_str_utf8",
+        "text2": "ptr_str_utf8",
+        "int5": "u32",
+        "int6": "u32",
+        "int7": "u32",
+        "int8": "u32"
+    }
+}

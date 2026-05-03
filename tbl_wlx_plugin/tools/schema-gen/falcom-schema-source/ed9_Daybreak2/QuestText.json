@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "schema": {
+        "quest_id": "u16",
+        "int1": "s32",
+        "empty1": "s16",
+        "quest_description": "ptr_str_utf8",
+        "array_flag1": "arr_u16",
+        "empty3": "s32",
+        "array_flag2": "arr_u16",
+        "empty4": "s32",
+        "empty5": "s64"
+    }
+}

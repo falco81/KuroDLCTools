@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "schema": {
+        "offered_item_id": "u32",
+        "effects": {
+            "repeat": 6,
+            "type": {
+                "trade_material_item_id": "u32",
+                "amount_required": "u32"
+            }
+        }
+    }
+}

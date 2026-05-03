@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u16",
+        "sequence_id": "u32",
+        "empty1": "s16",
+        "name": "ptr_str_utf8",
+        "arr1": "arr_u16",
+        "empty2": "s32",
+        "arr2": "arr_u16",
+        "empty3": "s32"
+    }
+}

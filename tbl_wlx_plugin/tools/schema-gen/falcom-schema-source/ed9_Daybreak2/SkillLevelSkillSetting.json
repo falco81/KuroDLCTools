@@ -1,0 +1,11 @@
+{
+    "version": 1,
+    "schema": {
+        "chr_id": "u16",
+        "skill_id": "u16",
+        "empty1": "u16",
+        "empty2": "u16",
+        "toffset1": "ptr_str_utf8",
+        "toffset2": "ptr_str_utf8"
+    }
+}

@@ -1,0 +1,16 @@
+{
+    "version": 1,
+    "schema": {
+        "character_id": "s16",
+        "shrt1": "s16",
+        "item_id": "s16",
+        "shrt3": "s16",
+        "text": "ptr_str_utf8",
+        "name": "ptr_str_utf8",
+        "int3": "u32",
+        "int4": "u32",
+        "attach_name": "ptr_str_utf8",
+        "text4": "ptr_str_utf8",
+        "text5": "ptr_str_utf8"
+    }
+}

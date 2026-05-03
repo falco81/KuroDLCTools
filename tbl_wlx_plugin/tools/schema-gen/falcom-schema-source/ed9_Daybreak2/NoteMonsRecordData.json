@@ -1,0 +1,11 @@
+{
+    "version": 1,
+    "schema": {
+        "text1": "ptr_str_utf8",
+        "text2": "ptr_str_utf8",
+        "id": "s32",
+        "short1": "u16",
+        "short2": "u16",
+        "text3": "ptr_str_utf8"
+    }
+}

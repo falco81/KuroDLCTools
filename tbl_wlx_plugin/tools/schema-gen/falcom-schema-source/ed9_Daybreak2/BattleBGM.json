@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "s64",
+        "arr1": "arr_u16",
+        "empty1": "s32",
+        "arr2": "arr_u16",
+        "int1": "s32",
+        "int2": "s32",
+        "int3": "s32",
+        "int4": "s32",
+        "int5": "s32"
+    }
+}

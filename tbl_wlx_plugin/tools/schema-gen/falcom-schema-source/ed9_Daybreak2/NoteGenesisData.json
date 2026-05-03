@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "arr1": "arr_u16",
+        "empty1": "s32",
+        "arr2": "arr_u16",
+        "empty2": "s32",
+        "note_text": "ptr_str_utf8"
+    }
+}

@@ -1,0 +1,20 @@
+{
+    "version": 1,
+    "schema": {
+        "achievement_category": "u32",
+        "achievement_id": "u32",
+        "achievement_objective_1": "u32",
+        "achievement_objective_param_1": "u32",
+        "long1": "s64",
+        "arr1": "arr_u32",
+        "short1": "s16",
+        "short2": "s16",
+        "int1": "s32",
+        "int2": "s32",
+        "long2": "s64",
+        "empty": "s64",
+        "flag": "ptr_str_utf8",
+        "achievement_name": "ptr_str_utf8",
+        "achievement_description": "ptr_str_utf8"
+    }
+}

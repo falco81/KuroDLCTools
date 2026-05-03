@@ -1,0 +1,11 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u8",
+        "element_id_1": "u8",
+        "element_id_2": "u8",
+        "byte1": "u8",
+        "icon_id": "s32",
+        "element_name": "ptr_str_utf8"
+    }
+}

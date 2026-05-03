@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u16",
+        "short1": "u16",
+        "short2": "u16",
+        "short3": "u16",
+        "arr1": "arr_u16",
+        "empty1": "s32",
+        "arr2": "arr_u16",
+        "empty2": "s32"
+    }
+}

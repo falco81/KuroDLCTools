@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "schema": {
+        "scena": "ptr_str_utf8",
+        "name": "ptr_str_utf8",
+        "flag": "ptr_str_utf8",
+        "hack_box_id": "s64",
+        "item_list": "arr_u16",
+        "empty1": "s32",
+        "hack_box_thing_1": "s64",
+        "hack_box_thing_2": "arr_u16",
+        "empty2": "s32"
+    }
+}

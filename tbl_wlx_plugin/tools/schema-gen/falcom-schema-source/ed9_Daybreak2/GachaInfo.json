@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "schema": {
+        "long0": "u64",
+        "arr0": "arr_u32",
+        "int0": "u32",
+        "arr1": "arr_u32",
+        "int1": "u32"
+    }
+}

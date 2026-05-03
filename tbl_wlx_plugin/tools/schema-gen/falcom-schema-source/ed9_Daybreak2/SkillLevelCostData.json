@@ -1,0 +1,23 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "id_2": "u32",
+        "empty1": "s16",
+        "stone_cost_1": "u16",
+        "stone_cost_2": "u16",
+        "stone_cost_3": "u16",
+        "stone_cost_4": "u16",
+        "stone_cost_5": "u16",
+        "stone_cost_6": "u16",
+        "stone_cost_7": "u16",
+        "stone_cost_8": "u16",
+        "stone_cost_9": "u16",
+        "stone_cost_10": "u16",
+        "stone_cost_11": "u16",
+        "stone_cost_12": "u16",
+        "stone_cost_13": "u16",
+        "stone_cost_14": "u16",
+        "stone_cost_15": "u16"
+    }
+}

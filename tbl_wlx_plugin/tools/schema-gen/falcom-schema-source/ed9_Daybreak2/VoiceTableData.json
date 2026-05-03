@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "s32",
+        "int1": "s32",
+        "filename": "ptr_str_utf8",
+        "int2": "s32",
+        "float1": "f32",
+        "int3": "s32",
+        "float2": "f32",
+        "text": "ptr_str_utf8"
+    }
+}

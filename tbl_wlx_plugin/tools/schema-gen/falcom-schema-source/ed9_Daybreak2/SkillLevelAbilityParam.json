@@ -1,0 +1,13 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u16",
+        "empty1": "s16",
+        "bonus": "s16",
+        "empty2": "s16",
+        "level_requirement": "s16",
+        "short1": "s16",
+        "short2": "s16",
+        "empty": "s16"
+    }
+}

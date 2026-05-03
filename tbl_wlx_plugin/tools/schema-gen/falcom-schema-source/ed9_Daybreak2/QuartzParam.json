@@ -1,0 +1,22 @@
+{
+    "version": 1,
+    "schema": {
+        "quartz_id": "u16",
+        "earth_sepith_cost": "u16",
+        "water_sepith_cost": "u16",
+        "fire_sepith_cost": "u16",
+        "wind_sepith_cost": "u16",
+        "time_sepith_cost": "u16",
+        "space_sepith_cost": "u16",
+        "mirage_sepith_cost": "u16",
+        "earth_elemental_amount": "u8",
+        "water_elemental_amount": "u8",
+        "fire_elemental_amount": "u8",
+        "wind_elemental_amount": "u8",
+        "time_elemental_amount": "u8",
+        "space_elemental_amount": "u8",
+        "mirage_elemental_amount": "u8",
+        "byte1": "s8",
+        "int1": "s32"
+    }
+}
