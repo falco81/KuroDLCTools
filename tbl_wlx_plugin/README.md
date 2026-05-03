@@ -1,4 +1,4 @@
-# TBL Lister Plugin v1.3.37 for Total Commander
+# TBL Lister Plugin v1.3.43 for Total Commander
 
 Read, browse, and edit Falcom `#TBL` data tables (Trails of Cold
 Steel, Trails through Daybreak, Trails in the Sky 1, Ys X, Kai)
@@ -174,7 +174,7 @@ TROUBLESHOOTING.md    common issues
 
 ## Source code
 
-Full sources for this plugin are in `tbl_wlx_v1.3.37_source.zip`. The
+Full sources for this plugin are in `tbl_wlx_v1.3.43_source.zip`. The
 build instructions cover Windows (Lazarus, manual fpc), Debian/Ubuntu,
 AlmaLinux/RHEL, Fedora, Arch, and macOS.
 
@@ -182,6 +182,6 @@ AlmaLinux/RHEL, Fedora, Arch, and macOS.
 
 Report issues with:
 - Total Commander version
-- Plugin version (1.3.37)
+- Plugin version (1.3.43)
 - The misbehaving `.tbl` file (or its first 256 bytes)
 - A copy of your `tbl_wlx.ini`
