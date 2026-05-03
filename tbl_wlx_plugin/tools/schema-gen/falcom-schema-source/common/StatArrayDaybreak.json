@@ -1,0 +1,23 @@
+{
+    "version": 1,
+    "schema": {
+        "hp": "u32",
+        "ep": "u32",
+        "patk": "u32",
+        "pdef": "u32",
+        "matk": "u32",
+        "mdef": "u32",
+        "str": "u32",
+        "def": "u32",
+        "ats": "u32",
+        "adf": "u32",
+        "agl": "u32",
+        "dex": "u32",
+        "hit": "u32",
+        "eva": "u32",
+        "meva": "u32",
+        "crit": "u32",
+        "spd": "u32",
+        "mov": "u32"
+    }
+}
