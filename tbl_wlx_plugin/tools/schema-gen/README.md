@@ -16,7 +16,42 @@ sections the plugin doesn't already recognize. Useful when:
 | `p3a_lib.py` | P3A archive read/write library (by eArmada8) |
 | `p3a_extract.py` | Extract `.p3a` archives → folder of files |
 | `sky_extract_pac.py` | Extract `.pac` archives (Trails in the Sky 1st Chapter) |
-| `generate_schemas.py` | The actual schema generator |
+| `generate_schemas.py` | v1 schema generator (legacy, kept for reference) |
+| `generate_schemas_v2.py` | v2 with EXE class hints + better heuristics |
+| **`tbl_schema_autogen.py`** | **v3 — comprehensive auto-generator (recommended)** |
+| `falcom-schema-source/` | FalcomSchema-main source + converter |
+| `falcom-enums/` | Cross-game enum constants from FalcomToolsCollection |
+| `kurotools-guide/` | Original KuroTools modding guide PDF |
+| `kuro-dlc-tool-source/` | kuro_dlc_tool reference implementation |
+
+## Recommended workflow for a new Falcom game
+
+```bash
+# 1. Extract TBL files from the game's archive (.p3a or .pac)
+python3 p3a_extract.py game.p3a /tmp/game_extracted/
+
+# 2. Auto-generate schemas for ALL section types
+#    --merge-with skips sections already covered by bundled schemas
+python3 tbl_schema_autogen.py /tmp/game_extracted/table/ \
+    -o /tmp/new_schemas/ \
+    --merge-with /path/to/wcx_tbl/schemas/headers/ \
+    -p "GENERATED_NewGame" \
+    -g "NewGame" \
+    --reports
+
+# 3. Review the generated schemas. The .json files use placeholder
+#    field names (id, name, description, text<N>, float<N>, unk<N>).
+#    For sections you care about, rename fields to semantic names
+#    based on game knowledge.
+
+# 4. Drop the .json files into wcx_tbl/schemas/headers/ alongside
+#    bundled schemas. Plugin scans this folder at load.
+
+# 5. Verify with roundtrip:
+./tests/testroundtrip /path/to/wcx_tbl/schemas /tmp/game_extracted/table/
+# Goal: 100% Func-identical, 0 Bad. Bit-identical varies due to
+# JSON float serialization but is not required.
+```
 
 ## Requirements
 
