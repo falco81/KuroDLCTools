@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "int1": "s32",
+        "recruitment": "ptr_str_utf8",
+        "char_name": "ptr_str_utf8",
+        "age": "ptr_str_utf8",
+        "home": "ptr_str_utf8",
+        "occupation": "ptr_str_utf8",
+        "int2": "u32",
+        "int3": "u32"
+    }
+}

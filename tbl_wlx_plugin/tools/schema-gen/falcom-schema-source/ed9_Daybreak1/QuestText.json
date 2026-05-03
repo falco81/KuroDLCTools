@@ -1,0 +1,20 @@
+{
+    "version": 1,
+    "schema": {
+        "quest_id": "u16",
+        "int1": "s32",
+        "empty1": "s16",
+        "quest_description": "ptr_str_utf8",
+        "notebook_text": "ptr_str_utf8",
+        "empty2": "s64",
+        "array_flag1": "arr_u16",
+        "empty3": "s32",
+        "array_flag2": "arr_u16",
+        "empty4": "s32",
+        "unk_ptr_str_utf8_1": "ptr_str_utf8",
+        "unk_arr_u16_1": "arr_u16",
+        "empty5": "s32",
+        "unk_arr_u16_2": "arr_u16",
+        "empty6": "s32"
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "int1": "s32",
+        "scena_array": "arr_u16",
+        "empty1": "s32",
+        "text1": "ptr_str_utf8",
+        "text2": "ptr_str_utf8",
+        "text3": "ptr_str_utf8"
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u32",
+        "exp_bonus": "f32",
+        "byte1": "u8",
+        "byte2": "u8",
+        "empty1": "s32",
+        "empty2": "s16",
+        "text": "ptr_str_utf8"
+    }
+}

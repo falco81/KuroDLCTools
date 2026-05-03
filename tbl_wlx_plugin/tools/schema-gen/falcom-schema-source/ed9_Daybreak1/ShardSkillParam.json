@@ -1,0 +1,48 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u16",
+        "byte1": "u8",
+        "byte2": "u8",
+        "element_earth": "u8",
+        "element_water": "u8",
+        "element_fire": "u8",
+        "element_wind": "u8",
+        "element_time": "u8",
+        "element_space": "u8",
+        "element_mirage": "u8",
+        "activation_chance": "u8",
+        "sclm_activation_chance": "u8",
+        "sboost_activation_chance": "u8",
+        "sboost_sclm_activation_chance": "u8",
+        "full_boost_activation_chance": "u8",
+        "empty": "u8",
+        "byte3": "u8",
+        "upgrade_id": "u16",
+        "empty2": "u32",
+        "array_flag": "arr_u16",
+        "empty3": "s32",
+        "flag2": "ptr_str_utf8",
+        "activation_condition_1": "u32",
+        "activation_condition_2": "u32",
+        "int1": "u32",
+        "empty4": "u32",
+        "short1": "u16",
+        "skill_substitute_id": "u16",
+        "effects": {
+            "repeat": 2,
+            "type": {
+                "id": "u32",
+                "value1": "u32",
+                "value2": "u32",
+                "value3": "u32"
+            }
+        },
+        "int2 ": "u32",
+        "animation": "ptr_str_utf8",
+        "id_for_something": "u64",
+        "name": "ptr_str_utf8",
+        "description_1": "ptr_str_utf8",
+        "description_2": "ptr_str_utf8"
+    }
+}

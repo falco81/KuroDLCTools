@@ -1,0 +1,30 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u16",
+        "int1": "s32",
+        "empty1": "s16",
+        "quest_description": "ptr_str_utf8",
+        "quest_giver": "ptr_str_utf8",
+        "short1": "s16",
+        "int2": "s32",
+        "empty2": "s16",
+        "file_name": "ptr_str_utf8",
+        "int3": "s32",
+        "int4": "s32",
+        "short2": "u16",
+        "short3": "u16",
+        "short4": "u16",
+        "empty3": "u16",
+        "int5": "s32",
+        "byte1": "u8",
+        "byte2": "u8",
+        "short5": "u16",
+        "long1": "s64",
+        "text": "ptr_str_utf8",
+        "arr1": "arr_u16",
+        "int6": "s32",
+        "arr2": "arr_u16",
+        "int7": "s32"
+    }
+}

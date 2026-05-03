@@ -1,0 +1,16 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u64",
+        "place_name": "ptr_str_utf8",
+        "place_name_highlight": "ptr_str_utf8",
+        "scena_file": "ptr_str_utf8",
+        "int1": "u32",
+        "float1": "f32",
+        "float2": "f32",
+        "empty1": "s32",
+        "place": "ptr_str_utf8",
+        "jump_file": "ptr_str_utf8",
+        "description": "ptr_str_utf8"
+    }
+}

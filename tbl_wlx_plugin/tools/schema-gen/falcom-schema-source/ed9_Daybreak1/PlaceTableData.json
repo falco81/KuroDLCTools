@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u64",
+        "text": "ptr_str_utf8",
+        "text2": "ptr_str_utf8",
+        "scena_flag_array1": "arr_u16",
+        "float1": "f32",
+        "scena_flag_array2": "arr_u16",
+        "float2": "f32",
+        "bytesseq": "ptr_str_latin1",
+        "utf8text": "ptr_str_utf8"
+    }
+}

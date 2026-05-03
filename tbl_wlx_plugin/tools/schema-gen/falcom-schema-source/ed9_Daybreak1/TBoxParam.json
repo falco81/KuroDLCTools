@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "map": "ptr_str_utf8",
+        "box_id": "ptr_str_utf8",
+        "flag": "ptr_str_utf8",
+        "contents": "arr_u16"
+    }
+}

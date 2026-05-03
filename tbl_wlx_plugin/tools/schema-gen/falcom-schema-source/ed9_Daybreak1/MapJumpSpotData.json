@@ -1,0 +1,17 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u64",
+        "place_name": "ptr_str_utf8",
+        "long1": "u64",
+        "scena_file": "ptr_str_utf8",
+        "toffset1": "ptr_str_utf8",
+        "x_coordinate": "f32",
+        "y_coordinate": "f32",
+        "z_coordinate": "f32",
+        "float4": "f32",
+        "long2": "u64",
+        "jump_file": "ptr_str_utf8",
+        "toffset2": "ptr_str_utf8"
+    }
+}

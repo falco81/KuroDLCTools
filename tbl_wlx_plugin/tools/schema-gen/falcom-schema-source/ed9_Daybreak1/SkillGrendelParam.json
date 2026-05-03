@@ -1,0 +1,7 @@
+{
+    "version": 1,
+    "schema": {
+        "character_id": "u16",
+        "grendel_character_id": "u16"
+    }
+}

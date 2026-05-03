@@ -1,0 +1,8 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "s64",
+        "texture1": "ptr_str_utf8",
+        "texture2": "ptr_str_utf8"
+    }
+}

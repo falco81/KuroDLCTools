@@ -1,0 +1,16 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u64",
+	"name": "ptr_str_utf8",
+	"model": "ptr_str_utf8",
+	"face": "ptr_str_utf8",
+	"script": "ptr_str_utf8",
+	"unk_u64_1": "u64",
+	"flag1": "ptr_str_utf8",
+	"flag2": "ptr_str_utf8",
+	"unk_u64_2": "u64",
+	"unknown_text": "ptr_str_utf8",
+	"full_name": "ptr_str_utf8"		
+    }
+}

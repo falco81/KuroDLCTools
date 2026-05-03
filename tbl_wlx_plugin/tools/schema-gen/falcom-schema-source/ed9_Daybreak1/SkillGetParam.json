@@ -1,0 +1,8 @@
+{
+    "version": 1,
+    "schema": {
+        "character_id": "u16",
+        "skill_id_1": "u16",
+        "skill_id_2": "u16"
+    }
+}

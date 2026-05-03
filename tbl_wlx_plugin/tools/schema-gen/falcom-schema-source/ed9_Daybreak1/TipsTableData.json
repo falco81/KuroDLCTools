@@ -1,0 +1,11 @@
+{
+    "version": 1,
+    "schema": {
+        "long1": "s64",
+        "array": "arr_u16",
+        "empty1": "s32",
+        "id": "s64",
+        "text_1": "ptr_str_utf8",
+        "text_2": "ptr_str_utf8"
+    }
+}

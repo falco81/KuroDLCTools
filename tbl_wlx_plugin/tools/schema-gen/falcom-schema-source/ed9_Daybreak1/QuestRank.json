@@ -1,0 +1,9 @@
+{
+    "version": 1,
+    "schema": {
+        "id": "u64",
+        "rank_name": "ptr_str_utf8",
+        "int1": "s32",
+        "int2": "s32"
+    }
+}

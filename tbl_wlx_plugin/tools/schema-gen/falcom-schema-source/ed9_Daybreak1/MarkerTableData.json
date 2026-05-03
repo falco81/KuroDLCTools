@@ -1,0 +1,12 @@
+{
+    "version": 1,
+    "schema": {
+        "unk_d8_1": "d8",
+        "unk_ptr_str_utf8_1": "ptr_str_utf8",
+        "unk_arr_u16_1": "arr_u16",
+        "unk_d4_1": "d4",
+        "unk_arr_u16_2": "arr_u16",
+        "unk_d4_2": "d4",
+        "unk_ptr_str_utf8_2": "ptr_str_utf8"
+    }
+}
