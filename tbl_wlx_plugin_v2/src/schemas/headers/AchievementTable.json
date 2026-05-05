@@ -1,0 +1,15 @@
+{
+	"NISA_PC": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"unk_u32": "uint",
+			"hidden": "uint",
+			"rarity": "uint",
+			"name": "toffset",
+			"description": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 2/6 placeholders, now 1/6"
+	}
+}

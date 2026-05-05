@@ -1,0 +1,13 @@
+{
+	"GENERATED": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "ulong",
+			"bgm_track": "toffset",
+			"unk0": "float",
+			"unk1": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 5/5 placeholders, now 2/4"
+	}
+}

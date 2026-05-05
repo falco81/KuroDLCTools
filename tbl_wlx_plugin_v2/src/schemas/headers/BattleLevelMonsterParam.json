@@ -1,0 +1,27 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"name": "toffset",
+			"int1": "int",
+			"int2": "int",
+			"int3": "int",
+			"int4": "int",
+			"int5": "int",
+			"int6": "int"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"name": "toffset",
+			"int1": "int",
+			"int2": "int",
+			"int3": "int",
+			"int4": "int",
+			"int5": "int",
+			"int6": "int"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

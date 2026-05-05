@@ -1,0 +1,23 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "short",
+			"int1": "uint",
+			"empty1": "short",
+			"connect_name": "toffset",
+			"connect_description": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "short",
+			"int1": "uint",
+			"empty1": "short",
+			"connect_name": "toffset",
+			"connect_description": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

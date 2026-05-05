@@ -1,0 +1,17 @@
+{
+	"FALCOM_SWITCH": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"unk_u32_1": "uint",
+			"unk_u32_2": "uint",
+			"unk_u32_3": "uint",
+			"array1": "u32array",
+			"unk_u32_4": "uint",
+			"array2": "u32array",
+			"unk_u32_5": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 7/8 placeholders, now 5/8"
+	}
+}

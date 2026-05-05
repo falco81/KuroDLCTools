@@ -1,0 +1,16 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"map": "toffset",
+			"character_id_array": "u32array",
+			"unk_u32_1": "uint",
+			"level_array_1": "u32array",
+			"unk_u32_2": "uint",
+			"level_array_2": "u32array",
+			"unk_u32_3": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 12/12 placeholders, now 3/7"
+	}
+}

@@ -1,0 +1,22 @@
+{
+	"FALCOM_SWITCH": {
+		"game": "Ys_X",
+		"schema": {
+			"character_id": "uint",
+			"item_id": "uint",
+			"base_model": "toffset",
+			"costume_model": "toffset"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOMSCHEMA_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"character_id": "uint",
+			"item_id": "uint",
+			"base_model": "toffset",
+			"equip_model": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

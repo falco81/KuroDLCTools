@@ -1,0 +1,53 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"character_id": "short",
+			"shrt1": "short",
+			"item_id": "short",
+			"shrt3": "short",
+			"text": "toffset",
+			"name": "toffset",
+			"int3": "uint",
+			"int4": "uint",
+			"attach_name": "toffset",
+			"text4": "toffset",
+			"text5": "toffset"
+		}
+	},
+	"KURODLC_Kuro1_2": {
+		"game": "Kuro1",
+		"schema": {
+			"character_id": "short",
+			"shrt1": "short",
+			"item_id": "short",
+			"shrt3": "short",
+			"text": "toffset",
+			"name": "toffset",
+			"int3": "uint",
+			"int4": "uint",
+			"attach_name": "toffset",
+			"text4": "toffset",
+			"text5": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 6/11 placeholders, now 4/11"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"character_id": "short",
+			"shrt1": "short",
+			"item_id": "short",
+			"shrt3": "short",
+			"text": "toffset",
+			"name": "toffset",
+			"int3": "uint",
+			"int4": "uint",
+			"attach_name": "toffset",
+			"text4": "toffset",
+			"text5": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

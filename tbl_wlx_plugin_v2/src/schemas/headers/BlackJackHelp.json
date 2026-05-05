@@ -1,0 +1,24 @@
+{
+	"FALCOM_PS5": {
+		"game": "Kai",
+		"schema": {
+			"id": "long",
+			"text": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"unk_d8_1_b0": "ubyte",
+			"unk_d8_1_b1": "ubyte",
+			"unk_d8_1_b2": "ubyte",
+			"unk_d8_1_b3": "ubyte",
+			"unk_d8_1_b4": "ubyte",
+			"unk_d8_1_b5": "ubyte",
+			"unk_d8_1_b6": "ubyte",
+			"unk_d8_1_b7": "ubyte",
+			"unk_ptr_str_utf8_1": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

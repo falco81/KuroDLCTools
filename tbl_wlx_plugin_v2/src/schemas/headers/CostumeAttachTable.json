@@ -1,0 +1,38 @@
+{
+	"FALCOM_SWITCH": {
+		"game": "Ys_X",
+		"schema": {
+			"character_id": "uint",
+			"unk0": "uint",
+			"item_id": "int",
+			"unk1": "int",
+			"base_model": "toffset",
+			"equip_model": "toffset",
+			"attach_point": "toffset",
+			"unk_text0": "toffset",
+			"unk_text1": "toffset",
+			"unk_text2": "toffset",
+			"unk_text3": "toffset",
+			"unk_text4": "toffset"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOMSCHEMA_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"character_id": "uint",
+			"unk_u32_1": "uint",
+			"item_id": "int",
+			"unk_u32_2": "uint",
+			"base_model": "toffset",
+			"equip_model": "toffset",
+			"attach_point": "toffset",
+			"text1": "toffset",
+			"text2": "toffset",
+			"text3": "toffset",
+			"text4": "toffset",
+			"text5": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

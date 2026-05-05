@@ -1,0 +1,32 @@
+{
+	"NISA_PC": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"sort_id": "uint",
+			"items": "u32array",
+			"unk0": "uint",
+			"quantity": "u32array",
+			"unk1": "uint",
+			"name": "toffset",
+			"type_desc": "toffset",
+			"desc": "toffset"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOMSCHEMA_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"sort_id": "uint",
+			"items": "u32array",
+			"unk_u32_1": "uint",
+			"amount": "u32array",
+			"unk_u32_2": "uint",
+			"name": "toffset",
+			"desc_1": "toffset",
+			"desc_2": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

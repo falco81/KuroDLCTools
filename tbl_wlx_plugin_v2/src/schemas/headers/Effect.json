@@ -1,0 +1,13 @@
+{
+	"FALCOMSCHEMA_Common": {
+		"game": "Common",
+		"schema": {
+			"effect_id": "uint",
+			"effect_values_0": "uint",
+			"effect_values_1": "uint",
+			"effect_values_2": "uint"
+		},
+		"source": "FalcomSchema common type (Trails-Research-Group)",
+		"note": "Shared structure inlined into other tables. Provided for reference; not a standalone TBL section."
+	}
+}
