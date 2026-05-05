@@ -1,0 +1,10 @@
+LIBRARY tblviewer
+EXPORTS
+    ListGetDetectString
+    ListLoad
+    ListLoadW
+    ListCloseWindow
+    ListSearchText
+    ListSearchTextW
+    ListSendCommand
+    ListSetDefaultParams

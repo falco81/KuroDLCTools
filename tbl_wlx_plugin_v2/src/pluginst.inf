@@ -1,0 +1,9 @@
+[plugininstall]
+type=wlx
+file=tblviewer.wlx64
+file=tblviewer.wlx
+description=Falcom #TBL viewer (C++ port)
+defaultextension=tbl
+defaultdir=tblviewer
+detectstring=EXT="TBL" | ([0]=35 & [1]=84 & [2]=66 & [3]=76) | ([0]=249 & [1]=186) | ([0]=217 & [1]=186)
+version=2.0.0
