@@ -1,0 +1,19 @@
+{
+	"NISA_PC": {
+		"game": "Ys_X",
+		"schema": {
+			"character_id": "ulong",
+			"name": "toffset",
+			"unk_u32_1": "uint",
+			"unk_u32_2": "uint",
+			"image": "toffset",
+			"description": "toffset",
+			"unk_u32_3": "uint",
+			"unk_u32_4": "uint",
+			"unk_u32_5": "uint",
+			"unk_u32_6": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 8/10 placeholders, now 6/10"
+	}
+}

@@ -1,0 +1,23 @@
+{
+	"NISA_PC": {
+		"game": "Ys_X",
+		"schema": {
+			"region_id": "uint",
+			"unk_u32": "uint",
+			"map": "toffset",
+			"map_texture": "toffset",
+			"map_name": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"region_id": "uint",
+			"unk_u32": "uint",
+			"map": "toffset",
+			"map_texture": "toffset",
+			"map_name": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

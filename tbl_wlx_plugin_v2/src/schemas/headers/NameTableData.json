@@ -1,0 +1,76 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "ulong",
+			"name": "toffset",
+			"model": "toffset",
+			"face": "toffset",
+			"script": "toffset",
+			"unk_u64_1": "ulong",
+			"flag1": "toffset",
+			"flag2": "toffset",
+			"unk_u64_2": "ulong",
+			"unknown_text": "toffset",
+			"full_name": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 6/11 placeholders, now 3/11"
+	},
+	"CLE_PC": {
+		"game": "Kuro2",
+		"schema": {
+			"character_id": "ulong",
+			"name": "toffset",
+			"model": "toffset",
+			"face": "toffset",
+			"script": "toffset",
+			"long1": "ulong",
+			"text1": "toffset",
+			"long2": "long",
+			"text2": "toffset",
+			"long3": "ulong",
+			"text3": "toffset",
+			"full_name": "toffset",
+			"full_name_en": "toffset"
+		}
+	},
+	"KURODLC_Kuro2": {
+		"game": "Kuro2",
+		"schema": {
+			"char_id": "ulong",
+			"name": "toffset",
+			"model": "toffset",
+			"face": "toffset",
+			"texture": "toffset",
+			"unk0": "ulong",
+			"unk_txt0": "toffset",
+			"unk1": "ulong",
+			"unk_txt1": "toffset",
+			"unk2": "ulong",
+			"unk_txt2": "toffset",
+			"unk_txt3": "toffset",
+			"unk_txt4": "toffset"
+		},
+		"source": "kuro_dlc_tool (precise types)"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"character_id": "ulong",
+			"name": "toffset",
+			"texture": "toffset",
+			"face": "toffset",
+			"model": "toffset",
+			"long1": "ulong",
+			"text1": "toffset",
+			"long2": "long",
+			"text2": "toffset",
+			"long3": "ulong",
+			"text3": "toffset",
+			"text4": "toffset",
+			"text5": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

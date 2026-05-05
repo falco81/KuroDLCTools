@@ -1,0 +1,17 @@
+{
+	"FALCOM_PC": {
+		"game": "Sora1",
+		"schema": {
+			"int1": "int",
+			"int2": "int"
+		}
+	},
+	"KURODLC_Sora1": {
+		"game": "Sora1",
+		"schema": {
+			"int1": "uint",
+			"int2": "uint"
+		},
+		"source": "kuro_dlc_tool (precise types)"
+	}
+}

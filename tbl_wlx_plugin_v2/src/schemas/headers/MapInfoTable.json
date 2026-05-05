@@ -1,0 +1,19 @@
+{
+	"NISA_PC": {
+		"game": "Ys_X",
+		"schema": {
+			"region_id": "uint",
+			"island_id": "uint",
+			"area_id": "uint"
+		}
+	},
+	"FALCOMSCHEMA_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"region_id": "uint",
+			"island_id": "uint",
+			"area_id": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

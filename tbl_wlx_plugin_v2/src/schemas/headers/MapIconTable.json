@@ -1,0 +1,14 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"unk_u32_1": "uint",
+			"unk_u32_2": "uint",
+			"flag": "toffset",
+			"unk_u32_3": "uint",
+			"unk_u32_4": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 5/5 placeholders, now 4/5"
+	}
+}

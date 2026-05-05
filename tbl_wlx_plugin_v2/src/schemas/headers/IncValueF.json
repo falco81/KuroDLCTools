@@ -1,0 +1,19 @@
+{
+	"FALCOM_SWITCH": {
+		"game": "Ys_X",
+		"schema": {
+			"name": "toffset",
+			"value": "float",
+			"padding": "uint"
+		}
+	},
+	"FALCOMSCHEMA_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"name": "toffset",
+			"value": "float",
+			"padding": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

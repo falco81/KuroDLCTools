@@ -1,0 +1,85 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "ulong",
+			"place_name": "toffset",
+			"place_name_highlight": "toffset",
+			"scena_file": "toffset",
+			"int1": "uint",
+			"float1": "float",
+			"float2": "float",
+			"empty1": "int",
+			"place": "toffset",
+			"jump_file": "toffset",
+			"description": "toffset"
+		}
+	},
+	"CLE_PC": {
+		"game": "Kuro2",
+		"schema": {
+			"id": "ulong",
+			"place_name": "toffset",
+			"place_name_highlight": "toffset",
+			"scena_file": "toffset",
+			"int1": "uint",
+			"int2": "uint",
+			"float1": "float",
+			"float2": "float",
+			"place": "toffset",
+			"jump_file": "toffset",
+			"description": "toffset",
+			"long1": "long"
+		}
+	},
+	"FALCOM_PC": {
+		"game": "Sora1",
+		"schema": {
+			"id": "uint",
+			"region_id": "uint",
+			"place_name": "toffset",
+			"scena_file": "toffset",
+			"x_coordinate": "float",
+			"y_coordinate": "float",
+			"z_coordinate": "float",
+			"empty": "uint",
+			"jump_file": "toffset",
+			"description": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "ulong",
+			"place_name": "toffset",
+			"place_name_highlight": "toffset",
+			"scena_file": "toffset",
+			"int1": "uint",
+			"float1": "float",
+			"float2": "float",
+			"empty1": "int",
+			"place": "toffset",
+			"jump_file": "toffset",
+			"description": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"id": "ulong",
+			"place_name": "toffset",
+			"place_name_highlight": "toffset",
+			"scena_file": "toffset",
+			"int1": "uint",
+			"int2": "uint",
+			"float1": "float",
+			"float2": "float",
+			"place": "toffset",
+			"jump_file": "toffset",
+			"description": "toffset",
+			"long1": "long"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}
