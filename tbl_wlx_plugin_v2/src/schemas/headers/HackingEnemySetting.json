@@ -1,0 +1,15 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2 from 9426 sampled rows across 5 TBL files. Field names are placeholders. Verify before save.",
+		"schema": {
+			"field0": "uint",
+			"field1": "uint",
+			"field2": "uint",
+			"field3": "int",
+			"field4": "int",
+			"field5": "int",
+			"field6": "uint"
+		}
+	}
+}

@@ -1,0 +1,37 @@
+{
+	"CLE_PC": {
+		"game": "Kuro1",
+		"schema": {
+			"short": "ushort",
+			"id": "ushort",
+			"uint1": "uint",
+			"file": "toffset",
+			"text1": "toffset",
+			"text2": "toffset"
+		}
+	},
+	"FALCOM_PS5": {
+		"game": "Kai",
+		"schema": {
+			"short": "ushort",
+			"id": "ushort",
+			"uint1": "uint",
+			"file": "toffset",
+			"text1": "toffset",
+			"text2": "toffset",
+			"text3": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"short": "ushort",
+			"id": "ushort",
+			"uint1": "uint",
+			"file": "toffset",
+			"text1": "toffset",
+			"text2": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

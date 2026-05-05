@@ -1,0 +1,29 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2 from 9 sampled rows across 2 TBL files. Field names are placeholders. Verify before save.",
+		"schema": {
+			"field0": "uint",
+			"field1": "uint",
+			"field2": "uint",
+			"field3": "uint",
+			"field4": "uint",
+			"field5": "uint",
+			"field6": "uint",
+			"field7": "uint",
+			"field8": "uint",
+			"field9": "uint"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"long0": "ulong",
+			"arr0": "u32array",
+			"int0": "uint",
+			"arr1": "u32array",
+			"int1": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

@@ -1,0 +1,15 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"value": "short"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"value": "short"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

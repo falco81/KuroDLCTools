@@ -1,0 +1,26 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"mana_material_id": "uint",
+			"unk_u32": "uint",
+			"red_rank_1_chance": "float",
+			"red_rank_2_chance": "float",
+			"red_rank_3_chance": "float",
+			"blue_rank_1_chance": "float",
+			"blue_rank_2_chance": "float",
+			"blue_rank_3_chance": "float",
+			"yellow_rank_1_chance": "float",
+			"yellow_rank_2_chance": "float",
+			"yellow_rank_3_chance": "float",
+			"purple_rank_1_chance": "float",
+			"purple_rank_2_chance": "float",
+			"purple_rank_3_chance": "float",
+			"rainbow_rank_1_chance": "float",
+			"rainbow_rank_2_chance": "float",
+			"rainbow_rank_3_chance": "float"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 17/17 placeholders, now 1/17"
+	}
+}

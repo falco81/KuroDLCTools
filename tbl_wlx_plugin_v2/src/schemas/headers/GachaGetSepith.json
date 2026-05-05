@@ -1,0 +1,16 @@
+{
+	"GENERATED": {
+		"game": "Unknown",
+		"note": "Auto-generated v2 from 1 sampled rows across 1 TBL files. Field names are placeholders. Verify before save.",
+		"schema": {
+			"field0": "float"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"float0": "float"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}
