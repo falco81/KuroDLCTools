@@ -1,0 +1,26 @@
+{
+	"CLE_PC": {
+		"game": "Kuro2",
+		"schema": {
+			"skill_power": "int",
+			"icon_id": "int"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOM_PS4": {
+		"game": "Kai",
+		"schema": {
+			"skill_power": "int",
+			"icon_id": "int",
+			"power_text": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"skill_power": "int",
+			"icon_id": "int"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

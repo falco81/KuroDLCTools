@@ -1,0 +1,32 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"key": "toffset",
+			"value": "toffset"
+		}
+	},
+	"NISA_PC": {
+		"game": "Ys_X",
+		"schema": {
+			"key": "toffset",
+			"value": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"key": "toffset",
+			"value": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"key": "toffset",
+			"value": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

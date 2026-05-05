@@ -1,0 +1,36 @@
+{
+	"FALCOM_SWITCH": {
+		"game": "Ys_X",
+		"schema": {
+			"character_restriction": "int",
+			"id": "int",
+			"unk_u32_1": "uint",
+			"unk_u32_2": "uint",
+			"unk_u32_3": "uint",
+			"unk_u32_4": "uint",
+			"unk_u32_5": "uint",
+			"unk_u32_6": "uint",
+			"unk_u32_7": "uint",
+			"unk_u32_8": "uint",
+			"name": "toffset",
+			"animation": "toffset",
+			"description": "toffset",
+			"internal_description": "toffset",
+			"mastery_requirement": "uint",
+			"sp": "uint",
+			"pow": "uint",
+			"str": "float",
+			"brk": "float",
+			"damage_multiplier": "float",
+			"float1": "float",
+			"float2": "float",
+			"float3": "float",
+			"trait_1": "uint",
+			"trait_2": "uint",
+			"trait_3": "uint",
+			"internal_name": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 20/27 placeholders, now 11/27"
+	}
+}

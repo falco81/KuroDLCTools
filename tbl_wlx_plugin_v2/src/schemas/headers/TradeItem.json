@@ -1,0 +1,72 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"offered_item_id": "uint",
+			"effects": {
+				"size": 6,
+				"schema": {
+					"trade_material_item_id": "uint",
+					"amount_required": "uint"
+				}
+			}
+		}
+	},
+	"KURODLC_Kuro1_2": {
+		"game": "Kuro1_2",
+		"schema": {
+			"item_id": "uint",
+			"trade_item_id1": "uint",
+			"quant1": "uint",
+			"trade_item_id2": "uint",
+			"quant2": "uint",
+			"trade_item_id3": "uint",
+			"quant3": "uint",
+			"trade_item_id4": "uint",
+			"quant4": "uint",
+			"trade_item_id5": "uint",
+			"quant5": "uint",
+			"trade_item_id6": "uint",
+			"quant6": "uint"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"offered_item_id": "uint",
+			"effects_0_trade_material_item_id": "uint",
+			"effects_0_amount_required": "uint",
+			"effects_1_trade_material_item_id": "uint",
+			"effects_1_amount_required": "uint",
+			"effects_2_trade_material_item_id": "uint",
+			"effects_2_amount_required": "uint",
+			"effects_3_trade_material_item_id": "uint",
+			"effects_3_amount_required": "uint",
+			"effects_4_trade_material_item_id": "uint",
+			"effects_4_amount_required": "uint",
+			"effects_5_trade_material_item_id": "uint",
+			"effects_5_amount_required": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"offered_item_id": "uint",
+			"effects_0_trade_material_item_id": "uint",
+			"effects_0_amount_required": "uint",
+			"effects_1_trade_material_item_id": "uint",
+			"effects_1_amount_required": "uint",
+			"effects_2_trade_material_item_id": "uint",
+			"effects_2_amount_required": "uint",
+			"effects_3_trade_material_item_id": "uint",
+			"effects_3_amount_required": "uint",
+			"effects_4_trade_material_item_id": "uint",
+			"effects_4_amount_required": "uint",
+			"effects_5_trade_material_item_id": "uint",
+			"effects_5_amount_required": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

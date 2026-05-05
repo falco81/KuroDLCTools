@@ -1,0 +1,57 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "int",
+			"int1": "int",
+			"filename": "toffset",
+			"int2": "int",
+			"float1": "float",
+			"int3": "int",
+			"float2": "float",
+			"text": "toffset"
+		}
+	},
+	"KURODLC_Kuro1_2_Kai": {
+		"game": "Kuro1_2_Kai",
+		"schema": {
+			"id": "uint",
+			"int1": "int",
+			"filename": "toffset",
+			"int2": "int",
+			"float1": "float",
+			"int3": "int",
+			"float2": "float",
+			"subtitle": "toffset"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "int",
+			"int1": "int",
+			"filename": "toffset",
+			"int2": "int",
+			"float1": "float",
+			"int3": "int",
+			"float2": "float",
+			"text": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"id": "int",
+			"int1": "int",
+			"filename": "toffset",
+			"int2": "int",
+			"float1": "float",
+			"int3": "int",
+			"float2": "float",
+			"text": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

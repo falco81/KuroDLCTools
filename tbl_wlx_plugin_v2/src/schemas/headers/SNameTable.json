@@ -1,0 +1,43 @@
+{
+	"FALCOM_SWITCH": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"unk_u32_1": "uint",
+			"name": "toffset",
+			"unk_u64_1": "ulong",
+			"unk_u64_2": "ulong",
+			"model": "toffset",
+			"script": "toffset",
+			"face": "toffset",
+			"active_voice_art": "toffset",
+			"ship_talk_art": "toffset",
+			"ship_feast_art": "toffset",
+			"unk_u32_2": "uint",
+			"unk_u32_3": "uint",
+			"text": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 6/14 placeholders, now 5/14"
+	},
+	"KURODLC_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"char_id": "uint",
+			"unk0": "uint",
+			"name": "toffset",
+			"unk1": "ulong",
+			"unk2": "ulong",
+			"model": "toffset",
+			"ani": "toffset",
+			"face": "toffset",
+			"unk_model0": "toffset",
+			"unk_model1": "toffset",
+			"unk_model2": "toffset",
+			"unk3": "int",
+			"unk4": "uint",
+			"unk_txt": "toffset"
+		},
+		"source": "kuro_dlc_tool (precise types)"
+	}
+}

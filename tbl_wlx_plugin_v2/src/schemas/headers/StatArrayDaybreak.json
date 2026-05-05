@@ -1,0 +1,27 @@
+{
+	"FALCOMSCHEMA_Common": {
+		"game": "Common",
+		"schema": {
+			"hp": "uint",
+			"ep": "uint",
+			"patk": "uint",
+			"pdef": "uint",
+			"matk": "uint",
+			"mdef": "uint",
+			"str": "uint",
+			"def": "uint",
+			"ats": "uint",
+			"adf": "uint",
+			"agl": "uint",
+			"dex": "uint",
+			"hit": "uint",
+			"eva": "uint",
+			"meva": "uint",
+			"crit": "uint",
+			"spd": "uint",
+			"mov": "uint"
+		},
+		"source": "FalcomSchema common type (Trails-Research-Group)",
+		"note": "Shared structure inlined into other tables. Provided for reference; not a standalone TBL section."
+	}
+}
