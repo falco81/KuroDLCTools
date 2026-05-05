@@ -1,0 +1,25 @@
+{
+	"FALCOM_SWITCH": {
+		"game": "Ys_X",
+		"schema": {
+			"unk_u32_1": "uint",
+			"shop_id": "uint",
+			"unk_s32_1": "int",
+			"unk_s32_2": "int",
+			"array1": "u32array",
+			"unk_u32_2": "uint",
+			"array2": "u32array",
+			"unk_u32_3": "uint",
+			"array3": "u32array",
+			"unk_u32_4": "uint",
+			"unk_s32_3": "int",
+			"unk_s32_4": "int",
+			"unk_s32_5": "int",
+			"unk_s32_6": "int",
+			"text1": "toffset",
+			"text2": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 13/16 placeholders, now 12/16"
+	}
+}

@@ -1,0 +1,31 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"item_id": "uint",
+			"float1": "float",
+			"float2": "float",
+			"str": "float",
+			"brk": "float",
+			"unk_u32_1": "uint",
+			"unk_u32_2": "uint",
+			"float3": "float",
+			"load_count": "uint",
+			"float4": "float",
+			"float5": "float",
+			"float6": "float",
+			"unk_u32_3": "uint",
+			"unk_u32_4": "uint",
+			"animation": "toffset",
+			"unk_u32_5": "uint",
+			"unk_u32_6": "uint",
+			"unk_u32_7": "uint",
+			"float7": "float",
+			"float8": "float",
+			"float9": "float",
+			"bullet_vfx": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 22/22 placeholders, now 16/22"
+	}
+}

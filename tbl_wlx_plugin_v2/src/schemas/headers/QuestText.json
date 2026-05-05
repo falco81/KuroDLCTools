@@ -1,0 +1,88 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"quest_id": "ushort",
+			"int1": "int",
+			"empty1": "short",
+			"quest_description": "toffset",
+			"notebook_text": "toffset",
+			"empty2": "long",
+			"array_flag1": "u16array",
+			"empty3": "int",
+			"array_flag2": "u16array",
+			"empty4": "int"
+		}
+	},
+	"CLE_PC": {
+		"game": "Kuro2",
+		"schema": {
+			"quest_id": "ushort",
+			"int1": "int",
+			"empty1": "short",
+			"quest_description": "toffset",
+			"array_flag1": "u16array",
+			"empty3": "int",
+			"array_flag2": "u16array",
+			"empty4": "int",
+			"empty5": "long"
+		}
+	},
+	"FALCOM_PC": {
+		"game": "Sora1",
+		"schema": {
+			"quest_id": "ushort",
+			"txt_id": "int",
+			"empty1": "short",
+			"quest_description": "toffset",
+			"long1": "long",
+			"unk_txt": "toffset"
+		}
+	},
+	"NISA_PC": {
+		"game": "Ys_X",
+		"schema": {
+			"id1": "uint",
+			"id2": "uint",
+			"text": "toffset",
+			"arr": "u32array",
+			"int": "int"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"quest_id": "ushort",
+			"int1": "int",
+			"empty1": "short",
+			"quest_description": "toffset",
+			"notebook_text": "toffset",
+			"empty2": "long",
+			"array_flag1": "u16array",
+			"empty3": "int",
+			"array_flag2": "u16array",
+			"empty4": "int",
+			"unk_ptr_str_utf8_1": "toffset",
+			"unk_arr_u16_1": "u16array",
+			"empty5": "int",
+			"unk_arr_u16_2": "u16array",
+			"empty6": "int"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"quest_id": "ushort",
+			"int1": "int",
+			"empty1": "short",
+			"quest_description": "toffset",
+			"array_flag1": "u16array",
+			"empty3": "int",
+			"array_flag2": "u16array",
+			"empty4": "int",
+			"empty5": "long"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

@@ -1,0 +1,29 @@
+{
+	"CLE_PC": {
+		"game": "Kuro2",
+		"schema": {
+			"id": "ushort",
+			"empty1": "short",
+			"bonus": "short",
+			"empty2": "short",
+			"level_requirement": "short",
+			"short1": "short",
+			"short2": "short",
+			"empty": "short"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"id": "ushort",
+			"empty1": "short",
+			"bonus": "short",
+			"empty2": "short",
+			"level_requirement": "short",
+			"short1": "short",
+			"short2": "short",
+			"empty": "short"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

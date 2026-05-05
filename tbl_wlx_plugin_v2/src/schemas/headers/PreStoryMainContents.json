@@ -1,0 +1,23 @@
+{
+	"CLE_PC": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "uint",
+			"uint1": "uint",
+			"file": "toffset",
+			"title": "toffset",
+			"text2": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "uint",
+			"uint1": "uint",
+			"file": "toffset",
+			"title": "toffset",
+			"text2": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

@@ -1,0 +1,33 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"character_id": "ushort",
+			"grendel_character_id": "ushort"
+		}
+	},
+	"GENERATED": {
+		"game": "",
+		"schema": {
+			"character_id": "ushort",
+			"grendel_character_id": "ushort"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"character_id": "ushort",
+			"grendel_character_id": "ushort"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"character_id": "ushort",
+			"grendel_character_id": "ushort"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

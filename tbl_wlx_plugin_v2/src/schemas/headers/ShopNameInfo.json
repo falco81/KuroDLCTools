@@ -1,0 +1,22 @@
+{
+	"FALCOM_SWITCH": {
+		"game": "Ys_X",
+		"schema": {
+			"unk0": "uint",
+			"unk1": "uint",
+			"unk_txt0": "toffset",
+			"unk_txt1": "toffset"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOMSCHEMA_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"unk_u32_1": "uint",
+			"unk_u32_2": "uint",
+			"text1": "toffset",
+			"text2": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

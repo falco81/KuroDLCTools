@@ -1,0 +1,21 @@
+{
+	"NISA_PC": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"unk_u32": "uint",
+			"text": "toffset",
+			"image": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"unk_u32": "uint",
+			"name": "toffset",
+			"image": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

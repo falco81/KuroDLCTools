@@ -1,0 +1,65 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "ulong",
+			"flag": "toffset",
+			"byte1": "ubyte",
+			"byte2": "ubyte",
+			"byte3": "ubyte",
+			"byte4": "ubyte",
+			"byte5": "ubyte",
+			"byte6": "ubyte",
+			"byte7": "ubyte",
+			"byte8": "ubyte"
+		}
+	},
+	"KURODLC_Kuro1_2": {
+		"game": "Kuro1_2",
+		"schema": {
+			"id": "ulong",
+			"flag": "toffset",
+			"byte1": "ubyte",
+			"byte2": "ubyte",
+			"byte3": "ubyte",
+			"byte4": "ubyte",
+			"byte5": "ubyte",
+			"byte6": "ubyte",
+			"byte7": "ubyte",
+			"byte8": "ubyte"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "ulong",
+			"flag": "toffset",
+			"byte1": "ubyte",
+			"byte2": "ubyte",
+			"byte3": "ubyte",
+			"byte4": "ubyte",
+			"byte5": "ubyte",
+			"byte6": "ubyte",
+			"byte7": "ubyte",
+			"byte8": "ubyte"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"id": "ulong",
+			"flag": "toffset",
+			"byte1": "ubyte",
+			"byte2": "ubyte",
+			"byte3": "ubyte",
+			"byte4": "ubyte",
+			"byte5": "ubyte",
+			"byte6": "ubyte",
+			"byte7": "ubyte",
+			"byte8": "ubyte"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

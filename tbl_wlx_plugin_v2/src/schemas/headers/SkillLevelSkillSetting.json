@@ -1,0 +1,25 @@
+{
+	"CLE_PC": {
+		"game": "Kuro2",
+		"schema": {
+			"chr_id": "ushort",
+			"skill_id": "ushort",
+			"empty1": "ushort",
+			"empty2": "ushort",
+			"toffset1": "toffset",
+			"toffset2": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"chr_id": "ushort",
+			"skill_id": "ushort",
+			"empty1": "ushort",
+			"empty2": "ushort",
+			"toffset1": "toffset",
+			"toffset2": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

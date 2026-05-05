@@ -1,0 +1,93 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"quartz_id": "ushort",
+			"earth_sepith_cost": "ushort",
+			"water_sepith_cost": "ushort",
+			"fire_sepith_cost": "ushort",
+			"wind_sepith_cost": "ushort",
+			"time_sepith_cost": "ushort",
+			"space_sepith_cost": "ushort",
+			"mirage_sepith_cost": "ushort",
+			"earth_elemental_amount": "ubyte",
+			"water_elemental_amount": "ubyte",
+			"fire_elemental_amount": "ubyte",
+			"wind_elemental_amount": "ubyte",
+			"time_elemental_amount": "ubyte",
+			"space_elemental_amount": "ubyte",
+			"mirage_elemental_amount": "ubyte",
+			"byte1": "byte",
+			"int1": "int"
+		}
+	},
+	"KURODLC_Kuro1_2": {
+		"game": "Kuro1_2",
+		"schema": {
+			"id": "ushort",
+			"cost_e": "ushort",
+			"cost_wa": "ushort",
+			"cost_f": "ushort",
+			"cost_wi": "ushort",
+			"cost_t": "ushort",
+			"cost_s": "ushort",
+			"cost_m": "ushort",
+			"quant_e": "ubyte",
+			"quant_wa": "ubyte",
+			"quant_f": "ubyte",
+			"quant_wi": "ubyte",
+			"quant_t": "ubyte",
+			"quant_s": "ubyte",
+			"quant_m": "ubyte",
+			"unk0": "ubyte",
+			"unk1": "uint"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOMSCHEMA_Daybreak1": {
+		"game": "Kuro1",
+		"schema": {
+			"quartz_id": "ushort",
+			"earth_sepith_cost": "ushort",
+			"water_sepith_cost": "ushort",
+			"fire_sepith_cost": "ushort",
+			"wind_sepith_cost": "ushort",
+			"time_sepith_cost": "ushort",
+			"space_sepith_cost": "ushort",
+			"mirage_sepith_cost": "ushort",
+			"earth_elemental_amount": "ubyte",
+			"water_elemental_amount": "ubyte",
+			"fire_elemental_amount": "ubyte",
+			"wind_elemental_amount": "ubyte",
+			"time_elemental_amount": "ubyte",
+			"space_elemental_amount": "ubyte",
+			"mirage_elemental_amount": "ubyte",
+			"byte1": "byte",
+			"int1": "int"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"quartz_id": "ushort",
+			"earth_sepith_cost": "ushort",
+			"water_sepith_cost": "ushort",
+			"fire_sepith_cost": "ushort",
+			"wind_sepith_cost": "ushort",
+			"time_sepith_cost": "ushort",
+			"space_sepith_cost": "ushort",
+			"mirage_sepith_cost": "ushort",
+			"earth_elemental_amount": "ubyte",
+			"water_elemental_amount": "ubyte",
+			"fire_elemental_amount": "ubyte",
+			"wind_elemental_amount": "ubyte",
+			"time_elemental_amount": "ubyte",
+			"space_elemental_amount": "ubyte",
+			"mirage_elemental_amount": "ubyte",
+			"byte1": "byte",
+			"int1": "int"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

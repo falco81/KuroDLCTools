@@ -1,0 +1,21 @@
+{
+	"GENERATED": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"unk_u32_1": "uint",
+			"bgm_file_main": "toffset",
+			"bgm_file_alt": "toffset",
+			"file_1": "toffset",
+			"file_2": "toffset",
+			"volume": "float",
+			"float1": "float",
+			"float2": "float",
+			"float3": "float",
+			"float4": "float",
+			"unk_u32_2": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 12/12 placeholders, now 6/12"
+	}
+}

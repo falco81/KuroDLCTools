@@ -1,0 +1,59 @@
+{
+	"FALCOM_SWITCH": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"unk0": "uint",
+			"item_id": "uint",
+			"materials": {
+				"size": 6,
+				"schema": {
+					"material_id": "uint",
+					"req_amount": "uint"
+				}
+			}
+		}
+	},
+	"NISA_PC": {
+		"game": "Ys_X",
+		"schema": {
+			"recipe_id": "uint",
+			"unk0": "uint",
+			"item_id": "uint",
+			"mat1_id": "uint",
+			"mat1_quant": "uint",
+			"mat2_id": "uint",
+			"mat2_quant": "uint",
+			"mat3_id": "uint",
+			"mat3_quant": "uint",
+			"mat4_id": "uint",
+			"mat4_quant": "uint",
+			"mat5_id": "uint",
+			"mat5_quant": "uint",
+			"mat6_id": "uint",
+			"mat6_quant": "uint"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOMSCHEMA_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"recipe_id": "uint",
+			"unk_u32": "uint",
+			"item_id": "uint",
+			"materials_0_id": "uint",
+			"materials_0_req_amount": "uint",
+			"materials_1_id": "uint",
+			"materials_1_req_amount": "uint",
+			"materials_2_id": "uint",
+			"materials_2_req_amount": "uint",
+			"materials_3_id": "uint",
+			"materials_3_req_amount": "uint",
+			"materials_4_id": "uint",
+			"materials_4_req_amount": "uint",
+			"materials_5_id": "uint",
+			"materials_5_req_amount": "uint"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

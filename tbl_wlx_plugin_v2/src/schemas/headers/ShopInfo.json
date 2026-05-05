@@ -1,0 +1,139 @@
+{
+	"FALCOM_PS4": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "ulong",
+			"shop_name": "toffset",
+			"long1": "long",
+			"flag": "toffset",
+			"empty": "ushort",
+			"shop_price_percent": "short",
+			"shop_cam_pos_x": "float",
+			"shop_cam_pos_y": "float",
+			"shop_cam_pos_z": "float",
+			"shop_cam_rotation_1": "float",
+			"shop_cam_rotation_2": "float",
+			"shop_cam_rotation_3": "float",
+			"shop_cam_rotation_4": "float",
+			"int1": "int",
+			"int2": "int",
+			"int3": "int",
+			"int4": "int"
+		}
+	},
+	"FALCOM_SWITCH": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"unk0": "uint",
+			"shop_name": "toffset",
+			"unk_txt1": "toffset",
+			"unk_txt2": "toffset"
+		},
+		"source": "kuro_dlc_tool"
+	},
+	"FALCOM_PC": {
+		"game": "Sora1",
+		"schema": {
+			"id": "ulong",
+			"shop_name": "toffset",
+			"long1": "long",
+			"flag": "toffset",
+			"empty": "ushort",
+			"shop_price_percent": "short",
+			"shop_cam_pos_x": "float",
+			"shop_cam_pos_y": "float",
+			"shop_cam_pos_z": "float",
+			"shop_cam_rotation_1": "float",
+			"shop_cam_rotation_2": "float",
+			"shop_cam_rotation_3": "float",
+			"shop_cam_rotation_4": "float",
+			"float1": "float",
+			"byte1": "ubyte",
+			"byte2": "ubyte",
+			"byte3": "ubyte",
+			"byte4": "ubyte"
+		}
+	},
+	"KURODLC_Kuro1_2": {
+		"game": "Kuro1",
+		"schema": {
+			"id": "ulong",
+			"shop_name": "toffset",
+			"long1": "long",
+			"flag": "toffset",
+			"empty": "ushort",
+			"shop_price_percent": "short",
+			"shop_cam_pos_x": "float",
+			"shop_cam_pos_y": "float",
+			"shop_cam_pos_z": "float",
+			"shop_cam_rotation_1": "float",
+			"shop_cam_rotation_2": "float",
+			"shop_cam_rotation_3": "float",
+			"shop_cam_rotation_4": "float",
+			"int1": "int",
+			"int2": "int",
+			"int3": "int",
+			"int4": "int"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)",
+		"note": "Better field names: was 13/17 placeholders, now 5/17"
+	},
+	"KURODLC_Sora1": {
+		"game": "Sora1",
+		"schema": {
+			"id": "ulong",
+			"shop_name": "toffset",
+			"long1": "ulong",
+			"flag": "toffset",
+			"empty": "ushort",
+			"short1": "ushort",
+			"float1": "float",
+			"float2": "float",
+			"float3": "float",
+			"float4": "float",
+			"float5": "float",
+			"float6": "float",
+			"float7": "float",
+			"int1": "ushort",
+			"int2": "ushort",
+			"int3": "ushort",
+			"int4": "ushort"
+		},
+		"source": "kuro_dlc_tool (precise types)"
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"id": "ulong",
+			"shop_name": "toffset",
+			"long1": "long",
+			"flag": "toffset",
+			"empty": "ushort",
+			"shop_price_percent": "short",
+			"shop_cam_pos_x": "float",
+			"shop_cam_pos_y": "float",
+			"shop_cam_pos_z": "float",
+			"shop_cam_rotation_1": "float",
+			"shop_cam_rotation_2": "float",
+			"shop_cam_rotation_3": "float",
+			"shop_cam_rotation_4": "float",
+			"int1": "int",
+			"int2": "int",
+			"int3": "int",
+			"int4": "int"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	},
+	"FALCOMSCHEMA_Ys_X": {
+		"game": "Ys_X",
+		"schema": {
+			"id": "uint",
+			"unk_u32": "uint",
+			"shop_name": "toffset",
+			"text1": "toffset",
+			"text2": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}

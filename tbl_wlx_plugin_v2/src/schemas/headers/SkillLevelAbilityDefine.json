@@ -1,0 +1,19 @@
+{
+	"CLE_PC": {
+		"game": "Kuro2",
+		"schema": {
+			"id": "long",
+			"bonus1": "toffset",
+			"bonus2": "toffset"
+		}
+	},
+	"FALCOMSCHEMA_Daybreak2": {
+		"game": "Kuro2",
+		"schema": {
+			"id": "long",
+			"bonus1": "toffset",
+			"bonus2": "toffset"
+		},
+		"source": "FalcomSchema (Trails-Research-Group)"
+	}
+}
