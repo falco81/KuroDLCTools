@@ -1143,6 +1143,9 @@ static void OpenSubGridForCell(PluginInst* p, int gridIdx,
         ShowWindow(ctx->grid->Hwnd(), SW_SHOW);
         SendMessageW(ctx->grid->Hwnd(), WM_SETFONT, (WPARAM)uiFont, TRUE);
     }
+    if (g_settings.autoSizeColumns && ctx->grid) {
+        ctx->grid->AutoSizeColumns();
+    }
 
     UpdateSubGridStatus(ctx);
     SubGridLayout(ctx);
@@ -1526,6 +1529,7 @@ constexpr int ID_CMB_GAME       = 1001;
 constexpr int ID_CHK_EDITMODE   = 1002;
 constexpr int ID_CHK_REMEMBER   = 1003;
 constexpr int ID_CHK_MAXIMIZE   = 1004;
+constexpr int ID_CHK_AUTOSIZE   = 1005;
 constexpr int ID_BTN_SAVE       = 1010;
 constexpr int ID_BTN_RESET      = 1011;
 constexpr int ID_BTN_OPENINI    = 1012;
@@ -1604,6 +1608,7 @@ static void ConfigLoadFromSettings(HWND panel) {
     setCheck(ID_CHK_EDITMODE, g_settings.defaultEditMode);
     setCheck(ID_CHK_REMEMBER, g_settings.rememberWinSize);
     setCheck(ID_CHK_MAXIMIZE, g_settings.maximizeOnOpen);
+    setCheck(ID_CHK_AUTOSIZE, g_settings.autoSizeColumns);
     ConfigPopulateInfoLabels(panel);
 }
 
@@ -1623,6 +1628,7 @@ static void ConfigSaveToSettings(HWND panel) {
     g_settings.defaultEditMode = getCheck(ID_CHK_EDITMODE);
     g_settings.rememberWinSize = getCheck(ID_CHK_REMEMBER);
     g_settings.maximizeOnOpen  = getCheck(ID_CHK_MAXIMIZE);
+    g_settings.autoSizeColumns = getCheck(ID_CHK_AUTOSIZE);
 
     if (!g_iniPath.empty()) {
         g_settings.SaveOptions(g_iniPath);
@@ -1646,6 +1652,7 @@ static void ConfigResetToDefaults(HWND panel) {
     setCheck(ID_CHK_EDITMODE, false);
     setCheck(ID_CHK_REMEMBER, true);
     setCheck(ID_CHK_MAXIMIZE, false);
+    setCheck(ID_CHK_AUTOSIZE, false);
     ConfigSetText(panel, ID_LBL_STATUS,
                   L"Defaults loaded. Click Save to persist.");
 }
@@ -1836,6 +1843,15 @@ static void BuildConfigControls(HWND panel) {
         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
         PAD_LEFT, y + 2, LABEL_WIDTH + CTRL_WIDTH, 22,
         panel, (HMENU)(INT_PTR)ID_CHK_MAXIMIZE, g_hInstance, nullptr);
+    installCtrl(chk);
+
+    // Row 4b: AutoSizeColumns
+    y += ROW_HEIGHT;
+    chk = CreateWindowExW(0, L"BUTTON",
+        L"Auto-size grid columns to fit content (slower for large tables)",
+        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX | WS_TABSTOP,
+        PAD_LEFT, y + 2, LABEL_WIDTH + CTRL_WIDTH, 22,
+        panel, (HMENU)(INT_PTR)ID_CHK_AUTOSIZE, g_hInstance, nullptr);
     installCtrl(chk);
 
     // Row 5: Buttons
@@ -2161,6 +2177,10 @@ static HWND DoLoad(HWND parent, const std::wstring& path) {
             ShowWindow(g->Hwnd(), SW_HIDE);
             SendMessageW(g->Hwnd(), WM_SETFONT,
                          (WPARAM)GetStockObject(DEFAULT_GUI_FONT), TRUE);
+        }
+        // Honour the AutoSizeColumns user setting (off by default).
+        if (g_settings.autoSizeColumns) {
+            g->AutoSizeColumns();
         }
         raw->grids.push_back(std::move(g));
         TabDesc td;

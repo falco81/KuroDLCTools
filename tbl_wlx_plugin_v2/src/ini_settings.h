@@ -24,6 +24,9 @@ struct IniSettings {
     bool        defaultEditMode = false;          // false = RO on F3
     bool        rememberWinSize = true;
     bool        maximizeOnOpen  = false;
+    bool        autoSizeColumns = false;          // off by default —
+                                                  // some users prefer
+                                                  // their own widths
 
     int         lastWinX        = -1;             // -1 = unset
     int         lastWinY        = -1;

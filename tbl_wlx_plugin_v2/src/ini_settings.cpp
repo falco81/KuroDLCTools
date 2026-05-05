@@ -83,6 +83,7 @@ void IniSettings::Load(const std::wstring& iniPath) {
     defaultEditMode  = ReadBool(L"DefaultEditMode",    L"0",  iniPath);
     rememberWinSize  = ReadBool(L"RememberWindowSize", L"1",  iniPath);
     maximizeOnOpen   = ReadBool(L"MaximizeOnOpen",     L"0",  iniPath);
+    autoSizeColumns  = ReadBool(L"AutoSizeColumns",    L"0",  iniPath);
 
     lastWinX         = ReadInt (L"LastWinX",           -1,    iniPath);
     lastWinY         = ReadInt (L"LastWinY",           -1,    iniPath);
@@ -122,6 +123,7 @@ void IniSettings::SaveOptions(const std::wstring& iniPath) const {
     WriteBool(L"DefaultEditMode",    defaultEditMode,      iniPath);
     WriteBool(L"RememberWindowSize", rememberWinSize,      iniPath);
     WriteBool(L"MaximizeOnOpen",     maximizeOnOpen,       iniPath);
+    WriteBool(L"AutoSizeColumns",    autoSizeColumns,      iniPath);
 }
 
 } // namespace tbl

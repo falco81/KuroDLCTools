@@ -178,7 +178,8 @@ GridView::GridView(HWND parent, HINSTANCE hInst,
 
     BuildColumns();
     Refresh();
-    AutoSizeColumns();
+    // Do NOT auto-size here — caller decides via AutoSizeColumns()
+    // after construction. Some users prefer fixed default widths.
 }
 
 GridView::~GridView() {
@@ -211,8 +212,17 @@ void GridView::BuildColumns() {
 // Re-size every column to fit the widest text it actually contains
 // (header + sampled rows). Virtual ListView (LVS_OWNERDATA) doesn't
 // support LVSCW_AUTOSIZE so we measure manually with GetTextExtent.
-// For very large tables we sample only the first kSampleLimit rows —
-// that's good enough for sensible widths and keeps open-time fast.
+//
+// Strategy:
+//   - Sample up to kSampleLimit rows (covers most tables fully; for
+//     huge tables it's an approximation but more than enough for
+//     sane widths).
+//   - Per-cell text is measured up to 300 chars — long descriptions
+//     legitimately need wide columns, but a freak megastring still
+//     gets clamped.
+//   - Max column width depends on column type: numeric / index ~250,
+//     toffset (free text) up to 1200. This keeps small columns tight
+//     while letting prose-heavy ones breathe.
 void GridView::AutoSizeColumns() {
     if (!hList_ || !fields_ || !section_) return;
     if (!section_->rows.IsArr()) return;
@@ -220,7 +230,7 @@ void GridView::AutoSizeColumns() {
     HWND hHdr = ListView_GetHeader(hList_);
     int colCount = Header_GetItemCount(hHdr);
     int rowCount = (int)section_->rows.AsArr().size();
-    constexpr int kSampleLimit = 200;
+    constexpr int kSampleLimit = 1000;
     int sampleCount = rowCount < kSampleLimit ? rowCount : kSampleLimit;
 
     HDC dc = GetDC(hList_);
@@ -230,13 +240,14 @@ void GridView::AutoSizeColumns() {
     HFONT oldFont = (HFONT)SelectObject(dc, hf);
 
     auto measure = [&](const wchar_t* s, int len) -> int {
+        if (len <= 0) return 0;
         SIZE sz{};
         GetTextExtentPoint32W(dc, s, len, &sz);
         return sz.cx;
     };
 
     for (int c = 0; c < colCount; ++c) {
-        // Header text (with margin for sort arrow).
+        // Header text (extra padding for sort arrow + a little air).
         wchar_t hdrBuf[256] = {};
         HDITEMW hd = {};
         hd.mask = HDI_TEXT;
@@ -248,17 +259,40 @@ void GridView::AutoSizeColumns() {
         // Sample rows.
         for (int row = 0; row < sampleCount; ++row) {
             std::wstring t = CellText(row, c);
-            // Cap the cell text we measure so a freak 200-char
-            // toffset doesn't blow the column wide.
             int len = (int)t.size();
-            if (len > 80) len = 80;
+            // Per-cell cap at 300 chars (one freak megastring won't
+            // blow the column to absurd width, but normal long
+            // descriptions still fit).
+            if (len > 300) len = 300;
             int cw = measure(t.c_str(), len) + 18;
             if (cw > w) w = cw;
         }
 
+        // Per-type max: prose (toffset / unknown) gets a generous
+        // ceiling; numeric columns stay tight.
+        int maxW = 250;
+        if (c >= 1 && fields_) {
+            int fi = c - 1;
+            if (fi >= 0 && fi < (int)fields_->fields.size()) {
+                auto k = fields_->fields[fi].dataType.kind;
+                if (k == TblBaseKind::TOffset) {
+                    maxW = 1200;
+                } else if (k == TblBaseKind::U8Array
+                        || k == TblBaseKind::U16Array
+                        || k == TblBaseKind::U32Array
+                        || k == TblBaseKind::Nested) {
+                    maxW = 600;
+                } else if (k == TblBaseKind::Float) {
+                    maxW = 200;
+                }
+            }
+        } else if (c == 0) {
+            maxW = 80;          // # column, just the row index
+        }
+
         // Min / max bounds.
-        if (w < 50)  w = 50;
-        if (w > 600) w = 600;
+        if (w < 50)   w = 50;
+        if (w > maxW) w = maxW;
         ListView_SetColumnWidth(hList_, c, w);
     }
 

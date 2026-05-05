@@ -82,6 +82,10 @@ public:
     static LRESULT CALLBACK CellEditProc(HWND hwnd, UINT msg,
                                          WPARAM wp, LPARAM lp);
 
+    // Re-measure & resize every column to fit its widest visible
+    // content. Caller decides when (e.g. on demand from Config).
+    void AutoSizeColumns();
+
 private:
     HWND               hList_       = nullptr;
     HINSTANCE          hInst_       = nullptr;
@@ -112,7 +116,6 @@ private:
     bool               sortDescending_ = false;
 
     void BuildColumns();
-    void AutoSizeColumns();          // measure widest text per column
     std::wstring CellText(int displayRow, int col) const;
     int  ModelRow(int displayRow) const;        // honors permutation
     void SortByColumn(int col);
