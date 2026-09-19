@@ -101,6 +101,9 @@ def isolate_skeleton_data (mdl_data):
             return False
 
 def obtain_skeleton_data (mdl_data):
+    # MDL v5 (Kyoto Xanadu, Trails in the Sky 2nd Chapter) adds a 4-byte field to
+    # every node - as in kuro_mdl_tool 1.6.6+. Without it v5 skeletons misparse.
+    kuro_ver = get_kuro_ver(mdl_data)
     skel_data = isolate_skeleton_data(mdl_data)
     if skel_data == False:
         return False
@@ -119,6 +122,8 @@ def obtain_skeleton_data (mdl_data):
             node_block['rotation_euler_rpy'] = struct.unpack("<3f",f.read(12))
             node_block['scale'] = struct.unpack("<3f",f.read(12))
             node_block['unknown'] = struct.unpack("<3f",f.read(12))
+            if kuro_ver > 4:
+                node_block['unknown2'], = struct.unpack("<I",f.read(4))
             child_count, = struct.unpack("<I",f.read(4))
             node_block['children'] = []
             for j in range(child_count):

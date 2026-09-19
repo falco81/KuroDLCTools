@@ -1,6 +1,15 @@
 """
 lib_texture_loader.py - Utility for loading and converting DDS textures
 Supports loading from multiple directory structures
+
+Texture files come in three wrappers, all handled transparently by
+read_dds_bytes() / unwrap_dds():
+  - plain DDS ("DDS ")                          Kuro / Daybreak, loose mods
+  - LZ4 frame (04 22 4D 18) holding a DDS       Trails in the Sky 1st / 2nd
+                                                Chapter remakes (and their .pac)
+  - CLE: Blowfish (F9BA / C9BA) or zstd (D9BA)  Kuro / Daybreak game files
+LZ4 needs the lz4 module (python -m pip install lz4); CLE needs blowfish and
+zstandard, taken from kuro_mdl_export_meshes.decryptCLE.
 """
 
 import os
@@ -16,15 +25,82 @@ except ImportError:
     Image = None
     print("Warning: PIL not installed. DDS conversion will be limited.")
 
+try:
+    import lz4.frame as _lz4_frame
+except ImportError:
+    _lz4_frame = None
+
+DDS_MAGIC = b'DDS '
+LZ4_MAGIC = b'\x04\x22\x4D\x18'
+CLE_MAGICS = (b'F9BA', b'C9BA', b'D9BA')
+
+
+class TextureWrapperError(ValueError):
+    """The file is a known texture wrapper that cannot be opened here."""
+
+
+def texture_wrapper(data: bytes) -> str:
+    """'dds', 'lz4', 'cle' or 'unknown' - what the bytes of a texture file are."""
+    head = data[:4]
+    if head == DDS_MAGIC:
+        return 'dds'
+    if head == LZ4_MAGIC:
+        return 'lz4'
+    if head in CLE_MAGICS:
+        return 'cle'
+    return 'unknown'
+
+
+def unwrap_dds(data: bytes) -> bytes:
+    """Return the plain DDS inside `data`, whatever it is wrapped in.
+
+    Raises TextureWrapperError with a readable reason when the wrapper is
+    known but cannot be opened (module missing, damaged frame, no DDS inside).
+    """
+    kind = texture_wrapper(data)
+    if kind == 'dds':
+        return data
+    if kind == 'lz4':
+        if _lz4_frame is None:
+            raise TextureWrapperError(
+                "LZ4-compressed texture (Trails in the Sky 2nd Chapter) - "
+                "install the lz4 module: python -m pip install lz4")
+        try:
+            data = _lz4_frame.decompress(data)
+        except Exception as e:
+            raise TextureWrapperError("LZ4 frame does not decompress: {}".format(e))
+    elif kind == 'cle':
+        try:
+            from kuro_mdl_export_meshes import decryptCLE
+        except Exception as e:
+            raise TextureWrapperError(
+                "Kuro CLE texture - decryptCLE unavailable ({})".format(e))
+        data = decryptCLE(data)
+    else:
+        raise TextureWrapperError("not a DDS texture (starts with {!r})".format(data[:4]))
+    if data[:4] != DDS_MAGIC:
+        raise TextureWrapperError("unwrapped, but the contents are not a DDS")
+    return data
+
+
+def read_dds_bytes(path) -> bytes:
+    """Read a texture file and return plain DDS bytes (see unwrap_dds)."""
+    with open(path, 'rb') as f:
+        return unwrap_dds(f.read())
+
 
 class DDSHeader:
-    """DDS file header parser"""
+    """DDS file header parser (accepts LZ4 / CLE wrapped textures too)"""
     def __init__(self, data: bytes):
-        if data[:4] != b'DDS ':
+        if data[:4] != DDS_MAGIC:
+            data = unwrap_dds(data)
+        if data[:4] != DDS_MAGIC:
             raise ValueError("Not a valid DDS file")
         
         # Read DDS_HEADER
-        header = struct.unpack('<7I44x', data[4:128])
+        # size, flags, height, width, pitch, depth, mipmaps (the rest of the
+        # 124-byte header follows; the pixel format is read below)
+        header = struct.unpack_from('<7I', data, 4)
         self.size = header[0]
         self.flags = header[1]
         self.height = header[2]
@@ -95,6 +171,7 @@ def convert_dds_to_png_pil(dds_data: bytes) -> Optional[bytes]:
         return None
     
     try:
+        dds_data = unwrap_dds(dds_data)
         # Try to open with PIL's DDS plugin
         img = Image.open(io.BytesIO(dds_data))
         
@@ -119,6 +196,7 @@ def convert_dds_to_rgba_raw(dds_data: bytes) -> Optional[Tuple[int, int, bytes]]
         Tuple of (width, height, rgba_bytes) or None if format not supported
     """
     try:
+        dds_data = unwrap_dds(dds_data)
         header = DDSHeader(dds_data)
         
         # Calculate data offset (header is 128 bytes)

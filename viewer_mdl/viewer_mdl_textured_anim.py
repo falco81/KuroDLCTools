@@ -47,6 +47,32 @@ except ImportError:
     print("Warning: lib_texture_loader not found. Textures will not be loaded.")
     TEXTURES_AVAILABLE = False
 
+# Trails in the Sky 1st / 2nd Chapter textures are DDS wrapped in an LZ4 frame,
+# Kuro game textures are CLE (Blowfish / zstd). unwrap_dds() returns the plain
+# DDS inside either; an older lib_texture_loader without it only reads plain DDS.
+try:
+    from lib_texture_loader import unwrap_dds, TextureWrapperError
+except ImportError:
+    class TextureWrapperError(ValueError):
+        pass
+
+    def unwrap_dds(data):
+        if data[:4] == b'DDS ':
+            return data
+        if data[:4] == b'\x04\x22\x4D\x18':
+            try:
+                import lz4.frame
+            except ImportError:
+                raise TextureWrapperError(
+                    "LZ4-compressed texture (Trails in the Sky 2nd Chapter) - "
+                    "install the lz4 module: python -m pip install lz4")
+            data = lz4.frame.decompress(data)
+        elif data[:4] in (b'F9BA', b'C9BA', b'D9BA'):
+            data = decryptCLE(data)
+        if data[:4] != b'DDS ':
+            raise TextureWrapperError("not a DDS texture")
+        return data
+
 # Pillow for DDS conversion
 try:
     from PIL import Image
@@ -96,9 +122,17 @@ def convert_dds_to_png(dds_path: Path, output_path: Path) -> bool:
         return False
     
     try:
-        img = Image.open(dds_path)
+        import io as _io
+        with open(dds_path, 'rb') as f:
+            raw = f.read()
+        # Plain DDS, LZ4-wrapped (Sky 1st / 2nd) or CLE (Kuro) - all the same here.
+        dds_data = unwrap_dds(raw)
+        img = Image.open(_io.BytesIO(dds_data))
         img.save(output_path, 'PNG')
         return True
+    except TextureWrapperError as e:
+        print(f"  [!] Failed to convert {dds_path.name}: {e}")
+        return False
     except Exception as e:
         print(f"  [!] Failed to convert {dds_path.name}: {e}")
         return False
