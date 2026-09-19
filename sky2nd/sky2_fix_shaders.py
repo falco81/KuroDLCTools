@@ -81,6 +81,7 @@ import glob
 import io
 import json
 import os
+import re
 import struct
 import sys
 
@@ -535,15 +536,19 @@ def iter_reference_models(paths, recursive=True):
             yield os.path.basename(path), loose_reader(path)
 
 
-def build_reference(paths, recursive=True, quiet=False):
+def build_reference(paths, recursive=True, quiet=False, exclude=()):
     """Collect every shader configuration the reference models use.
 
     Returns {config_key: donor}, where a donor carries the whole material block
-    so a broken material can be rebuilt from it.
+    so a broken material can be rebuilt from it.  Models named in `exclude`
+    (lower-case file names) are skipped - with an auto-detected game folder
+    those are the very models being checked, possibly installed there already.
     """
     reference = {}
     models, skipped, seen = 0, 0, 0
     for label, read in iter_reference_models(paths, recursive):
+        if label.lower() in exclude:
+            continue
         seen += 1
         materials = None
         for limit in (PREFIX_BYTES, None):
@@ -574,8 +579,10 @@ def build_reference(paths, recursive=True, quiet=False):
     return reference, models
 
 
-def save_reference(reference, models, path):
+def save_reference(reference, models, path, sources=None):
     payload = {'version': 1, 'models': models, 'configurations': reference}
+    if sources:
+        payload['sources'] = [os.path.abspath(p) for p in sources]
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(payload, f, indent=1)
 
@@ -583,7 +590,144 @@ def save_reference(reference, models, path):
 def load_reference(path):
     with open(path, 'r', encoding='utf-8') as f:
         payload = json.load(f)
-    return payload.get('configurations', {}), payload.get('models', 0)
+    return (payload.get('configurations', {}), payload.get('models', 0),
+            payload.get('sources') or [])
+
+
+# ---------------------------------------------------------------------------
+# Finding the game
+# ---------------------------------------------------------------------------
+
+# Steam's name for the game and the folder it installs to. Matched loosely so
+# that a renamed or localised install is still found; 1st Chapter never matches.
+GAME_NAME_RE = re.compile(r'sky.*(2nd|second|\bsc\b)', re.IGNORECASE)
+REFERENCE_MIN_CONFIGS = 50
+
+
+def pac_folder(game_dir):
+    """The folder with the game's .pac archives, or None."""
+    for candidate in (os.path.join(game_dir, 'pac', 'steam'),
+                      os.path.join(game_dir, 'pac'), game_dir):
+        try:
+            names = os.listdir(candidate)
+        except OSError:
+            continue
+        for name in names:
+            if name.lower().endswith('.pac') and \
+                    is_pac_file(os.path.join(candidate, name)):
+                return candidate
+    return None
+
+
+def steam_roots():
+    """Where Steam itself is installed, on Windows, Linux and SteamOS."""
+    roots = []
+    if os.name == 'nt':
+        try:
+            import winreg
+            for hive, key, value in (
+                    (winreg.HKEY_CURRENT_USER, r'Software\Valve\Steam', 'SteamPath'),
+                    (winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\WOW6432Node\Valve\Steam',
+                     'InstallPath'),
+                    (winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\Valve\Steam', 'InstallPath')):
+                try:
+                    with winreg.OpenKey(hive, key) as handle:
+                        roots.append(winreg.QueryValueEx(handle, value)[0])
+                except OSError:
+                    pass
+        except ImportError:
+            pass
+        for env in ('ProgramFiles(x86)', 'ProgramFiles'):
+            if os.environ.get(env):
+                roots.append(os.path.join(os.environ[env], 'Steam'))
+    else:
+        home = os.path.expanduser('~')
+        roots += [os.path.join(home, '.steam', 'steam'),
+                  os.path.join(home, '.steam', 'root'),
+                  os.path.join(home, '.local', 'share', 'Steam'),
+                  os.path.join(home, '.var', 'app', 'com.valvesoftware.Steam',
+                               '.local', 'share', 'Steam')]
+    seen, unique = set(), []
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        real = os.path.normcase(os.path.realpath(root))
+        if real not in seen:
+            seen.add(real)
+            unique.append(root)
+    return unique
+
+
+def steam_libraries(root):
+    """Every library folder Steam knows about (extra drives, SD cards...)."""
+    libraries = [root]
+    vdf = os.path.join(root, 'steamapps', 'libraryfolders.vdf')
+    try:
+        with open(vdf, 'r', encoding='utf-8', errors='replace') as f:
+            text = f.read()
+    except OSError:
+        return libraries
+    for match in re.finditer(r'"path"\s+"([^"]+)"', text):
+        libraries.append(match.group(1).replace('\\\\', '\\'))
+    return libraries
+
+
+def steam_game_dirs():
+    """Installed copies of the game, found through Steam's app manifests."""
+    found, seen = [], set()
+    for root in steam_roots():
+        for library in steam_libraries(root):
+            apps = os.path.join(library, 'steamapps')
+            candidates = []
+            for manifest in glob.glob(os.path.join(apps, 'appmanifest_*.acf')):
+                try:
+                    with open(manifest, 'r', encoding='utf-8', errors='replace') as f:
+                        text = f.read()
+                except OSError:
+                    continue
+                name = re.search(r'"name"\s+"([^"]*)"', text)
+                folder = re.search(r'"installdir"\s+"([^"]*)"', text)
+                if name and folder and GAME_NAME_RE.search(name.group(1)):
+                    candidates.append(os.path.join(apps, 'common', folder.group(1)))
+            # Manifests missing (a copied install): go by the folder name.
+            for folder in glob.glob(os.path.join(apps, 'common', '*')):
+                if GAME_NAME_RE.search(os.path.basename(folder)):
+                    candidates.append(folder)
+            for folder in candidates:
+                real = os.path.normcase(os.path.realpath(folder))
+                if real not in seen and os.path.isdir(folder):
+                    seen.add(real)
+                    found.append(folder)
+    return found
+
+
+def detect_reference(start_dirs):
+    """The game's pac folder, found without being told. (path, how) or (None, None).
+
+    First the folders above the models and the script - the toolkit is often
+    kept inside the game folder - then every Steam library on the machine.
+    """
+    seen = set()
+    for start in start_dirs:
+        folder = os.path.abspath(start)
+        while True:
+            if folder not in seen:
+                seen.add(folder)
+                pacs = pac_folder(folder)
+                # A folder of loose .pac files above the models counts only
+                # when it looks like the game's own pac/steam layout.
+                if pacs and (pacs != folder or
+                             os.path.basename(os.path.dirname(folder)).lower() == 'pac'):
+                    return pacs, "game folder above {}".format(start)
+            parent = os.path.dirname(folder)
+            if parent == folder:
+                break
+            folder = parent
+    for game_dir in steam_game_dirs():
+        pacs = pac_folder(game_dir)
+        if pacs:
+            return pacs, "Steam library"
+    return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -613,6 +757,55 @@ def find_donor(material, reference, max_diff):
     if best_distance[0] > max_diff:
         return None, describe_difference(material, best)
     return best, describe_difference(material, best)
+
+
+# The reference only lists what the game's own models use, and the game has
+# more shaders than that: a working port of a Kuro costume kept a fur material
+# and several chr_cloth parameter sets no game model has. So a configuration
+# missing from the reference is at most a suspect.
+#
+# unknown2[2] is a set of flags. What was learnt on real models:
+#  - a Kuro chr_cloth material with the value 6 did not render in 2nd Chapter;
+#    with 14 (the same plus 8), exactly as the game's own copy of that
+#    configuration has it, it did;
+#  - chr_hair and chr_cloth materials with 14 render fine even where every model
+#    of the game uses 6 for the same configuration.
+# So adding the 8 flag is a proven repair and removing it is never needed.
+RENDER_FLAG = 8
+
+
+def only_unknown2_differs(material, donor):
+    if switch_list(material) != switch_list(donor):
+        return False
+    if parameter_list(material) != parameter_list(donor):
+        return False
+    for field in ('str3', 'uv_map_indices', 'unknown1'):
+        if material[field] != donor[field]:
+            return False
+    ours, theirs = material['unknown2'], donor['unknown2']
+    return ours[:2] == theirs[:2] and ours[3:] == theirs[3:] and ours[2] != theirs[2]
+
+
+def classify(material, donor, differing):
+    """How sure we are that a material missing from the reference is broken.
+
+    missing_shader  no game model uses the shader at all
+    certain         only the render flag is missing - the proven failure
+    known_ok        the flag is set where the game's models leave it out -
+                    proven to render, so not touched
+    unverified      switches or parameters differ; may well work, since the game
+                    ships more shaders than its models use
+    too_far         nothing comparable in the reference
+    """
+    if donor is None:
+        return 'missing_shader' if differing is None else 'too_far'
+    if only_unknown2_differs(material, donor):
+        ours, theirs = material['unknown2'][2], donor['unknown2'][2]
+        if theirs == ours | RENDER_FLAG:
+            return 'certain'
+        if ours == theirs | RENDER_FLAG:
+            return 'known_ok'
+    return 'unverified'
 
 
 def rebuild_material(material, donor, kuro_ver):
@@ -652,6 +845,155 @@ def rebuild_material(material, donor, kuro_ver):
     return rebuilt, kept, borrowed, dropped
 
 
+# ---------------------------------------------------------------------------
+# Shaders the game does not have at all
+# ---------------------------------------------------------------------------
+
+# A shader no 2nd Chapter model uses was never compiled for the game, so no
+# configuration of it can work.  Such a material is moved to a shader the game
+# does have.  Only character shaders are handled; the fur shell effect, for
+# example, has no counterpart and is simply lost - the mesh renders as cloth.
+SUBSTITUTE_SHADERS = {'fur': 'chr_cloth'}
+
+
+def substitute_shader(shader):
+    if shader in SUBSTITUTE_SHADERS:
+        return SUBSTITUTE_SHADERS[shader]
+    if shader.startswith('chr_'):
+        return 'chr_cloth'
+    return None
+
+
+def texture_role(name):
+    """What a texture is for, judged by the usual naming."""
+    lowered = name.lower()
+    if 'toon' in lowered:
+        return 'toon'
+    if lowered.endswith('_n'):
+        return 'normal'
+    if lowered.endswith(('_q', '_p', '_m')):
+        return 'mask'
+    return 'diffuse'
+
+
+def textures_by_role(material):
+    """{role: texture name}.  The diffuse is the one in the lowest slot, so a
+    shader-specific extra (a fur pattern, say) is not mistaken for it."""
+    roles = {}
+    for texture in sorted(material['textures'], key=lambda t: t['texture_slot']):
+        role = texture_role(texture['texture_image_name'])
+        roles.setdefault(role, texture['texture_image_name'])
+    return roles
+
+
+def find_substitute(material, siblings, reference):
+    """A working material on another shader to rebuild `material` from.
+
+    First choice is a material of the same model that already works and uses
+    the same textures - it is known to suit this mesh and these images. Failing
+    that, the closest configuration of the substitute shader in the reference.
+    Returns (donor, where it came from) or (None, None).
+    """
+    target = substitute_shader(material['shader_name'])
+    if target is None:
+        return None, None
+    own = set(t['texture_image_name'] for t in material['textures'])
+
+    best = None
+    for sibling in siblings:
+        if sibling is material or sibling['shader_name'] != target:
+            continue
+        key = config_key(sibling)
+        if key not in reference:
+            continue
+        shared = len(own & set(t['texture_image_name'] for t in sibling['textures']))
+        if shared == 0:
+            continue
+        rank = (-shared, len(switch_difference(switch_map(material),
+                                               switch_map(sibling))),
+                sibling['material_name'])
+        if best is None or rank < best[0]:
+            # The sibling itself, not the reference copy of its configuration:
+            # its textures belong to this costume, so a mask or toon map the
+            # broken material lacks comes from the same set.
+            best = (rank, sibling, sibling['material_name'])
+    if best is not None:
+        return best[1], "this model / {}".format(best[2])
+
+    candidates = []
+    for donor in reference.values():
+        if donor['shader_name'] != target or not donor['textures']:
+            continue
+        candidates.append((len(switch_difference(switch_map(material),
+                                                 switch_map(donor))),
+                           donor.get('_source_model', ''),
+                           donor['material_name'], donor))
+    if not candidates:
+        return None, None
+    candidates.sort(key=lambda c: (c[0], c[1], c[2]))
+    donor = candidates[0][3]
+    return donor, "{0} / {1}".format(donor.get('_source_model', ''),
+                                     donor['material_name'])
+
+
+def rebuild_material_by_role(material, donor, kuro_ver):
+    """Like rebuild_material, for a donor on a different shader: slot numbers
+    mean different things there, so textures are matched by what they are."""
+    rebuilt = json.loads(json.dumps(donor))
+    rebuilt.pop('_source_model', None)
+    rebuilt.pop('_source_kuro_ver', None)
+    rebuilt['material_name'] = material['material_name']
+    rebuilt['id_referenceonly'] = material['id_referenceonly']
+
+    own = textures_by_role(material)
+    used, kept, borrowed = set(), [], []
+    for texture in rebuilt['textures']:
+        role = texture_role(texture['texture_image_name'])
+        if role in own:
+            texture['texture_image_name'] = own[role]
+            used.add(own[role])
+            kept.append(own[role])
+        else:
+            borrowed.append("{0} (slot {1}) -> {2}".format(
+                role, texture['texture_slot'], texture['texture_image_name']))
+    dropped = [t['texture_image_name'] for t in material['textures']
+               if t['texture_image_name'] not in used]
+    if kuro_ver > 1:
+        for texture in rebuilt['textures']:
+            texture.setdefault('unk_00', 0)
+            texture.setdefault('unk_03', 0)
+    return rebuilt, kept, borrowed, dropped
+
+
+def restore_backups(mdl_files, scan_dir):
+    """Undo every earlier --fix: each model gets its first backup back.
+
+    The first backup (<model>.bak) is the file as it was before this script
+    touched it at all; later runs made .bak1, .bak2... The backups are kept.
+    """
+    restored = 0
+    for mdl in mdl_files:
+        first = mdl + '.bak'
+        if not os.path.isfile(first):
+            continue
+        with open(first, 'rb') as f:
+            original = f.read()
+        with open(mdl, 'rb') as f:
+            current = f.read()
+        rel = os.path.relpath(mdl, scan_dir)
+        if original == current:
+            out("{}   already the original".format(rel))
+            continue
+        with open(mdl, 'wb') as f:
+            f.write(original)
+        restored += 1
+        out("{0}   restored from {1}".format(rel, os.path.basename(first)))
+    out("")
+    out("{} model(s) restored. Run with --fix again to repair them the careful way."
+        .format(restored) if restored else "Nothing to restore.")
+    return 0
+
+
 def backup_path(path, suffix='.bak'):
     candidate = path + suffix
     if not os.path.exists(candidate):
@@ -673,13 +1015,29 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="The game only ships the shader combinations its own models use.\n"
                "A material asking for any other one makes the mesh disappear -\n"
-               "the log says 'file not found: asset/dx11/shader/<name>#<hash>.fxo'.")
+               "the log says 'file not found: asset/dx11/shader/<name>#<hash>.fxo'.\n\n"
+               "Reference (what the game has), in this order:\n"
+               "  --ref PATH      always used when given\n"
+               "  the cache       sky2_shader_ref.json from an earlier run\n"
+               "  auto-detected   the game's pac/steam in a folder above the models\n"
+               "                  or the script, or in any Steam library (Windows,\n"
+               "                  Linux, SteamOS, Flatpak Steam)\n\n"
+               "Examples:\n"
+               "  python sky2_fix_shaders.py mymod            report, game found automatically\n"
+               "  python sky2_fix_shaders.py mymod --fix      repair (a .bak is kept)\n"
+               "  python sky2_fix_shaders.py mymod --rebuild  read the game again (after an update)\n"
+               '  python sky2_fix_shaders.py mymod --ref "D:\\Games\\Sky2nd\\pac\\steam"')
     parser.add_argument('directory', nargs='?', default='.',
                         help="folder with the .mdl files to check (default: current)")
     parser.add_argument('--ref', action='append', default=[], metavar='PATH',
                         help="untouched 2nd Chapter models: a folder (both "
                              ".mdl files and .pac archives inside it are used), "
-                             "an .mdl or a .pac (may be repeated)")
+                             "an .mdl or a .pac (may be repeated). Without it "
+                             "the cache is used, or the game is found "
+                             "automatically (folders above, Steam libraries)")
+    parser.add_argument('--rebuild', action='store_true',
+                        help="ignore the cache and read the game again (found "
+                             "automatically unless --ref is given)")
     parser.add_argument('--cache', default=DEFAULT_CACHE, metavar='FILE',
                         help="where to keep the collected configurations "
                              "(default: {})".format(DEFAULT_CACHE))
@@ -688,6 +1046,19 @@ def main():
     parser.add_argument('--max-diff', type=int, default=6, metavar='N',
                         help="largest acceptable number of differing switches "
                              "(default: 6)")
+    parser.add_argument('--restore', action='store_true',
+                        help="put back the original of every model this script "
+                             "ever rewrote (from its first .bak), then stop")
+    parser.add_argument('--aggressive', action='store_true',
+                        help="with --fix, also rewrite materials that are only "
+                             "unverified (switches or parameters differ from "
+                             "every game model). Not recommended: the game "
+                             "usually has these shaders too")
+    parser.add_argument('--substitute', action='store_true',
+                        help="with --fix, move materials whose shader no game "
+                             "model uses (e.g. fur) to chr_cloth. Off by default: "
+                             "the game does have such shaders - a working port "
+                             "kept its fur material as it was")
     parser.add_argument('--no-recursive', action='store_true',
                         help="do not descend into subfolders")
     parser.add_argument('--no-backup', action='store_true',
@@ -718,35 +1089,73 @@ def main():
         out("No .mdl files found in {}".format(scan_dir))
         return 0
 
+    if args.restore:
+        return restore_backups(mdl_files, scan_dir)
+
     # ---- reference -------------------------------------------------------
-    reference, ref_models = {}, 0
+    # 1. --ref, when given, always wins.
+    # 2. Otherwise the cache from an earlier run - unless it is thin (built from
+    #    a model or two) and the game itself can be found.
+    # 3. Otherwise the game is looked for: above the models and the script,
+    #    then in every Steam library. The result is cached.
+    reference, ref_models, ref_sources = {}, 0, list(args.ref)
+    cache_path = args.cache
+    if not os.path.exists(cache_path) and args.cache == DEFAULT_CACHE:
+        beside_script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                     DEFAULT_CACHE)
+        if os.path.exists(beside_script):
+            cache_path = beside_script
+
+    build_from, exclude = None, ()
     if args.ref:
+        build_from = args.ref
         if not args.quiet:
-            out("Reading reference models...")
-        reference, ref_models = build_reference(args.ref, recursive, args.quiet)
-        if reference:
+            out("Reference: --ref {}".format(", ".join(args.ref)))
+    else:
+        if os.path.exists(cache_path) and not args.rebuild:
             try:
-                save_reference(reference, ref_models, args.cache)
+                reference, ref_models, ref_sources = load_reference(cache_path)
                 if not args.quiet:
-                    out("Cached to {}".format(args.cache))
+                    out("Reference loaded from {}".format(cache_path))
+            except (OSError, ValueError) as e:
+                out("Could not read {0}: {1}".format(cache_path, e))
+        if len(reference) < REFERENCE_MIN_CONFIGS:
+            found, how = detect_reference(
+                [scan_dir, os.getcwd(), os.path.dirname(os.path.abspath(__file__))])
+            if found:
+                if reference and not args.quiet:
+                    out("The cached reference is small ({} configuration(s)); "
+                        "rebuilding it from the game.".format(len(reference)))
+                if not args.quiet:
+                    out("Game found ({0}): {1}".format(how, found))
+                build_from = [found]
+                # The game folder may already hold the mod being checked.
+                exclude = {os.path.basename(m).lower() for m in mdl_files}
+            elif args.rebuild and not args.quiet:
+                out("--rebuild: the game could not be found; point --ref at it.")
+
+    if build_from:
+        if not args.quiet:
+            out("Reading reference models (a one-off, the result is cached)...")
+        built, built_models = build_reference(build_from, recursive, args.quiet,
+                                              exclude)
+        if built:
+            reference, ref_models, ref_sources = built, built_models, build_from
+            try:
+                save_reference(reference, ref_models, cache_path, build_from)
+                if not args.quiet:
+                    out("Cached to {}".format(cache_path))
             except OSError as e:
                 out("Could not write the cache: {}".format(e))
-    elif os.path.exists(args.cache):
-        try:
-            reference, ref_models = load_reference(args.cache)
-            if not args.quiet:
-                out("Reference loaded from {}".format(args.cache))
-        except (OSError, ValueError) as e:
-            out("Could not read {0}: {1}".format(args.cache, e))
 
     if not reference:
-        out("No reference configurations available.")
+        out("No reference configurations available, and the game was not found.")
         out("")
-        out("Point --ref at untouched Trails in the Sky 2nd Chapter models. "
-            "The game's own")
-        out("pac/steam folder is the easiest choice - every .pac in it is read, "
-            "and the result")
-        out("is cached so this is a one-off:")
+        out("Looked above {0}, above this script, and in the Steam libraries."
+            .format(scan_dir))
+        out("Point --ref at the game's pac/steam folder (every .pac in it is "
+            "read, and the")
+        out("result is cached, so this is a one-off):")
         out('  python sky2_fix_shaders.py mymod --ref "<game>/pac/steam"')
         return 2
 
@@ -771,6 +1180,7 @@ def main():
 
     # ---- check -----------------------------------------------------------
     broken_total, fixed_total, unfixable_total = 0, 0, 0
+    known_ok_total, unverified_total, certain_total = 0, 0, 0
     models_with_problems = []
     unreadable = []
 
@@ -794,37 +1204,101 @@ def main():
                 out("{0}   ({1} material(s), all ok)".format(rel, len(materials)))
             continue
 
-        models_with_problems.append(rel)
-        broken_total += len(broken)
+        before = broken_total
         out(rel)
 
         changed = False
         for material in broken:
-            out("    [broken] {0}   shader {1}, {2} switch(es)".format(
-                material['material_name'], material['shader_name'],
-                len(material['material_switches'])))
-
             donor, differing = find_donor(material, reference, args.max_diff)
-            if donor is None:
-                unfixable_total += 1
-                if differing is None:
-                    out("             no material in the reference uses shader "
-                        "{}".format(material['shader_name']))
-                else:
-                    out("             the closest configuration differs too "
-                        "much (--max-diff is {})".format(args.max_diff))
-                    for note in differing:
-                        out("               {}".format(note))
+            verdict = classify(material, donor, differing)
+            name = material['material_name']
+
+            # ---- known to work although no game model uses it -------------
+            if verdict == 'known_ok':
+                known_ok_total += 1
+                if not args.quiet:
+                    out("    [ok]     {0}   unknown2[2] = {1}; the game's own models "
+                        "use {2},".format(name, material['unknown2'][2],
+                                          donor['unknown2'][2]))
+                    out("             but this variant is known to render - "
+                        "left alone")
                 continue
 
+            broken_total += 1
+
+            # ---- the game has no such shader at all -------------------------
+            if verdict == 'missing_shader':
+                out("    [?]      {0}   shader {1}: no model of the game uses it"
+                    .format(name, material['shader_name']))
+                out("             The game still has shaders its models do not use "
+                    "(a working port")
+                out("             kept a fur material unchanged), so this is not "
+                    "proof of a problem.")
+                if not args.substitute:
+                    if args.fix:
+                        unverified_total += 1
+                        out("             not changed (--substitute moves it to "
+                            "chr_cloth)")
+                    continue
+                substitute, origin = find_substitute(material, materials, reference)
+                if substitute is None:
+                    unfixable_total += 1
+                    out("             no working shader to move it to - reassign "
+                        "it in Blender")
+                    continue
+                out("             replace with shader {0}, donor: {1}".format(
+                    substitute['shader_name'], origin))
+                out("             [!] the {} look is lost; the mesh renders as "
+                    "{}".format(material['shader_name'], substitute['shader_name']))
+                if not args.fix:
+                    continue
+                rebuilt, kept, borrowed, dropped = rebuild_material_by_role(
+                    material, substitute, kuro_ver)
+                materials[material['id_referenceonly']] = rebuilt
+                changed = True
+                fixed_total += 1
+                out("             rebuilt, textures kept: {}".format(
+                    ", ".join(kept) or "none"))
+                for note in borrowed:
+                    out("             [!] no texture of yours for {} - kept from "
+                        "the donor".format(note))
+                for note in dropped:
+                    out("             [!] {} is not used by the new "
+                        "shader".format(note))
+                continue
+
+            if verdict == 'too_far':
+                unfixable_total += 1
+                out("    [?]      {0}   shader {1}: nothing close enough in the game"
+                    .format(name, material['shader_name']))
+                for note in differing or []:
+                    out("               {}".format(note))
+                continue
+
+            # ---- certain: only the render flag is missing ---------------------
+            # ---- unverified: switches or parameters differ --------------------
+            if verdict == 'certain':
+                certain_total += 1
+                out("    [broken] {0}   shader {1}".format(name, material['shader_name']))
+            else:
+                out("    [?]      {0}   shader {1}: this exact configuration is not "
+                    "in any game model".format(name, material['shader_name']))
+                out("             That alone does not prove it is broken - the game "
+                    "has more shaders")
+                out("             than its models use. Check in game first; the log "
+                    "says 'file not found:")
+                out("             asset/dx11/shader/{}#....fxo' when it is."
+                    .format(material['shader_name']))
             out("             donor: {0} / {1}".format(
                 donor['_source_model'], donor['material_name']))
             for note in differing:
                 out("             changes -> {}".format(note))
-            if not differing:
-                out("             identical configuration (nothing to change)")
 
             if not args.fix:
+                continue
+            if verdict == 'unverified' and not args.aggressive:
+                unverified_total += 1
+                out("             not changed (--aggressive rewrites it anyway)")
                 continue
 
             rebuilt, kept, borrowed, dropped = rebuild_material(
@@ -836,10 +1310,12 @@ def main():
             for note in borrowed:
                 out("             [!] no texture of yours for {} - the donor's "
                     "is kept".format(note))
-            for name in dropped:
+            for note in dropped:
                 out("             [!] your texture {} has no slot in the new "
-                    "material".format(name))
+                    "material".format(note))
 
+        if broken_total > before:
+            models_with_problems.append(rel)
         if args.fix and changed:
             try:
                 new_section = build_material_section(materials, kuro_ver)
@@ -862,7 +1338,13 @@ def main():
     out("=" * 62)
     out("Models checked:       {}".format(len(mdl_files)))
     out("Models with problems: {}".format(len(models_with_problems)))
-    out("Broken materials:     {}".format(broken_total))
+    out("Flagged materials:    {}  ([broken] and [?] above)".format(broken_total))
+    if known_ok_total:
+        out("Known-good variants:  {}  (not in the game's models, but render)"
+            .format(known_ok_total))
+    if unverified_total:
+        out("Left unchanged:       {}  (unverified - see above; --aggressive)"
+            .format(unverified_total))
     if args.fix:
         out("Materials rebuilt:    {}".format(fixed_total))
     if unfixable_total:
@@ -874,10 +1356,20 @@ def main():
     out("=" * 62)
 
     if broken_total == 0:
-        out("Every material uses a shader configuration this game has.")
+        out("Every material uses a shader configuration this game has, or one known "
+            "to work.")
     elif not args.fix:
-        out("Run again with --fix to rebuild {} material(s).".format(broken_total))
-        out("A .bak of every model that changes is kept.")
+        if certain_total:
+            out("Run again with --fix to repair the {} [broken] material(s); the [?] "
+                "ones are".format(certain_total))
+            out("left alone unless you ask (--aggressive, --substitute). A .bak of "
+                "every model that")
+            out("changes is kept.")
+        else:
+            out("Nothing proven broken. The [?] materials are only suspects - check "
+                "the game's")
+            out("console.log for 'file not found: asset/dx11/shader/...' before "
+                "changing anything.")
     elif fixed_total:
         out("Check the models in game.  A donor whose switches differ can change "
             "how a surface")
@@ -888,7 +1380,7 @@ def main():
         out("alternatives, and its readme explains copying a material across "
             "by hand.")
 
-    remaining = unfixable_total + (broken_total if not args.fix else 0)
+    remaining = unfixable_total + (certain_total if not args.fix else 0)
     return 1 if remaining or unreadable else 0
 
 
