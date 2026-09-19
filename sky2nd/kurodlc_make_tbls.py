@@ -77,7 +77,11 @@ def add_appid_entries(kt):
         for x in existing:
             print("  DLC {0:>4} -> AppID {1}   {2}".format(x['dlc_id'], x['app_id'], dlc_names.get(x['dlc_id'], '')))
         for dlc_id in missing:
-            answer = input("AppID for DLC {0} [{1}]: ".format(dlc_id, default_appid)).strip()
+            try:
+                answer = input("AppID for DLC {0} [{1}]: ".format(dlc_id, default_appid)).strip()
+            except EOFError:        # run from a batch file / without a console
+                answer = ''
+                print("(no input - using {})".format(default_appid))
             try:
                 appid_map[dlc_id] = int(answer) if answer else default_appid
             except ValueError:

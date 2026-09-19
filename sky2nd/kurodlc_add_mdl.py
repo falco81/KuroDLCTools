@@ -93,6 +93,7 @@ try:
         get_profile, resolve_game_id, describe_games, GAME_IDS,
         detect_game_from_item_entry, detect_game_from_item_length,
         detect_game_from_kurodlc, make_item_template, make_dlc_template,
+        migrate_kurodlc,
         make_costume_template, make_shop_template, normalize_chr_restrict,
         DEFAULT_GAME)
     HAS_PROFILES = True
@@ -1542,6 +1543,51 @@ def scan_mdl_files(base_dir):
 # Main logic
 # =========================================================================
 
+def report_migration(report, game_id, json_file):
+    """Print what migrate_kurodlc() changed. True if anything was."""
+    changed = report['ItemTableData'] + report['DLCTableData']
+    if not changed:
+        return False
+    sources = ", ".join(get_profile(g)['name'] for g in sorted(report['from'])) \
+        or "another layout"
+    print(f"\nConverting {os.path.basename(json_file)} to "
+          f"{get_profile(game_id)['name']} (from {sources}):")
+    if report['ItemTableData']:
+        print(f"  ItemTableData: {report['ItemTableData']} entr(y/ies) - fields, "
+              f"chr_restrict and category numbers")
+    if report['DLCTableData']:
+        print(f"  DLCTableData:  {report['DLCTableData']} record(s) - record size")
+    print("  (--no-migrate leaves them as they are)")
+    return True
+
+
+def write_kurodlc(json_file, data, do_backup, is_new_file, ensure_ascii):
+    """Back up the old file (unless new) and write `data` in section order."""
+    if do_backup and not is_new_file:
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = json_file + f'_{timestamp}.bak'
+        try:
+            import shutil
+            shutil.copy2(json_file, backup_file)
+            print(f"\nBackup created: {backup_file}")
+        except Exception as e:
+            print(f"Warning: Could not create backup: {e}")
+    try:
+        # Ensure section order: CostumeParam, DLCTableData, ItemTableData, ShopItem
+        section_order = ['CostumeParam', 'DLCTableData', 'ItemTableData', 'ShopItem']
+        ordered = {k: data[k] for k in section_order if k in data}
+        for k in data:
+            if k not in ordered:
+                ordered[k] = data[k]
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(ordered, f, indent=4, ensure_ascii=ensure_ascii)
+        print(f"Written: {json_file}")
+    except Exception as e:
+        print(f"Error writing file: {e}")
+        sys.exit(1)
+
+
 def print_usage():
     """Print usage information."""
     print(
@@ -1563,6 +1609,14 @@ def print_usage():
         "  Sky 2nd Chapter and Ys X differ in the ItemTableData field set, in\n"
         "  the costume category number and in the DLCTableData record size.\n"
         "  Sky 2nd Chapter also stores chr_restrict as a list.\n"
+        "  The game is taken from --game, else from the t_item table in the\n"
+        "  folder, else from the entries already in the file. Entries already\n"
+        "  in the file that were made for another game are converted to it\n"
+        "  (fields, chr_restrict, category numbers - a Kuro costume 17 becomes\n"
+        "  a Sky costume 15 - and the DLC record size), so a Sky 1st Chapter\n"
+        "  mod needs no separate kurodlc_convert_sky1_to_sky2.py run.\n"
+        "  Costumes: category 17 in Kuro, 15 in both Sky chapters; subcategory\n"
+        "  16 everywhere.\n"
         "\n"
         "Smart ID Assignment (v2.0):\n"
         "  - Collects used IDs from t_item (game data) + all .kurodlc.json files\n"
@@ -1586,6 +1640,9 @@ def print_usage():
         "  --no-backup         Skip backup creation when applying\n"
         "  --no-ascii-escape   Write UTF-8 directly (e.g. Agnès instead of Agn\\u00e8s)\n"
         "  --prompt-names      Interactively prompt for each item name\n"
+        "  --no-migrate        Leave entries already in the file in their own\n"
+        "                      layout (by default they are converted to the\n"
+        "                      game being generated for, see below)\n"
         "  --only-new          Add only models no other .kurodlc.json in the\n"
         "                      folder has in its CostumeParam - for a new mod\n"
         "                      made of the costumes not released yet\n"
@@ -1629,6 +1686,9 @@ def print_usage():
         "  python kurodlc_add_mdl.py FalcoDLC.kurodlc.json --min-id=3000 --max-id=4000\n"
         "      Search for free IDs only in range 3000-4000.\n"
         "\n"
+        "  python kurodlc_add_mdl.py OldSky1Mod.kurodlc.json --game=sky2nd --apply\n"
+        "      Convert a Sky 1st Chapter mod to 2nd Chapter (and add any new MDLs).\n"
+        "\n"
         "  python kurodlc_add_mdl.py NewMod.kurodlc.json --only-new --apply\n"
         "      New mod with only the models no other .kurodlc.json here has yet."
     )
@@ -1665,6 +1725,7 @@ def main():
     prompt_names = False
     game_id = None
     only_new = False
+    migrate = True
 
     args = sys.argv[2:]
 
@@ -1701,6 +1762,8 @@ def main():
             prompt_names = True
         elif arg == '--only-new':
             only_new = True
+        elif arg == '--no-migrate':
+            migrate = False
         elif arg.startswith('--game='):
             requested = arg.split('=', 1)[1]
             game_id = resolve_game_id(requested) if HAS_PROFILES else None
@@ -1776,6 +1839,14 @@ def main():
             print("\nEvery .mdl file here is already in a .kurodlc.json. Nothing to add.")
         else:
             print("\nAll .mdl files are already present in the kurodlc config. Nothing to add.")
+        # With an explicit --game the file can still be brought to that layout.
+        if HAS_PROFILES and game_id and migrate and not is_new_file:
+            report = migrate_kurodlc(data, game_id)
+            if report_migration(report, game_id, json_file):
+                if apply_changes:
+                    write_kurodlc(json_file, data, do_backup, is_new_file, ensure_ascii)
+                else:
+                    print("\n[DRY RUN] No files modified. Use --apply to write the conversion.")
         sys.exit(0)
 
     print(f"New .mdl files to add: {len(new_mdls)}")
@@ -1874,21 +1945,24 @@ def main():
     print(f"Game items loaded: {len(items_dict)} IDs")
 
     # ---- Determine which game these tables belong to ----
-    # Priority: --game flag > entries already in the .kurodlc.json > the game
-    # item table just loaded.  The generated entries must match the layout of
-    # the game the tables came from.
+    # Priority: --game flag > the game item table just loaded > entries already
+    # in the .kurodlc.json.  The tables are what the mod will be built into, so
+    # they outrank a file that may have been written for another game (a Sky
+    # 1st Chapter mod dropped into a 2nd Chapter folder).
+    file_game = detect_game_from_kurodlc(data) if HAS_PROFILES else None
     if HAS_PROFILES:
         if game_id:
             print(f"\nGame: {get_profile(game_id)['name']} (from --game)")
         else:
-            game_id = detect_game_from_kurodlc(data)
-            detected_from = 'existing entries in ' + os.path.basename(json_file)
-            if game_id is None:
-                for entry in items_data:
-                    game_id = detect_game_from_item_entry(entry)
-                    if game_id:
-                        detected_from = 't_item data'
-                        break
+            detected_from = None
+            for entry in items_data:
+                game_id = detect_game_from_item_entry(entry)
+                if game_id:
+                    detected_from = 't_item data'
+                    break
+            if game_id is None and file_game:
+                game_id = file_game
+                detected_from = 'existing entries in ' + os.path.basename(json_file)
             if game_id:
                 print(f"\nGame detected: {get_profile(game_id)['name']} "
                       f"({detected_from})")
@@ -1897,6 +1971,9 @@ def main():
                 print(f"\nGame could not be detected, assuming "
                       f"{get_profile(game_id)['name']}.")
                 print("  Use --game=kuro|sky1st|sky2nd|ysx to set it explicitly.")
+        if file_game and file_game != game_id:
+            print(f"  {os.path.basename(json_file)} was written for "
+                  f"{get_profile(file_game)['name']}.")
 
     # ---- Build complete used_ids set ----
     used_ids = collect_all_used_ids(base_dir, items_dict)
@@ -2014,10 +2091,23 @@ def main():
             default_ids=existing_shop_ids or None
         )
 
+    # ---- Bring the existing entries to the same game ----
+    # Otherwise the file would mix layouts, and new entries would be copied
+    # from an old-layout template. This replaces kurodlc_convert_sky1_to_sky2.py
+    # (which remains for converting without adding anything).
+    if HAS_PROFILES and migrate:
+        report_migration(migrate_kurodlc(data, game_id, dlc_entry_length),
+                         game_id, json_file)
+
     # Get templates from existing entries
     costume_tmpl = get_costume_template(data)
     item_tmpl = get_item_template(data)
     shop_tmpl = get_shop_template(data)
+    # A template left in another game's layout (--no-migrate) must not be
+    # copied: build new entries from the game's own template instead.
+    if HAS_PROFILES and item_tmpl is not None and \
+            detect_game_from_item_entry(item_tmpl) not in (None, game_id):
+        item_tmpl = None
 
     # ---- Find available IDs using smart algorithm ----
     count_needed = len(resolved)
@@ -2143,35 +2233,11 @@ def main():
             dlc_record['quantity'].extend([1] * len(new_item_ids))
 
     # ---- Backup and write ----
-    if do_backup and not is_new_file:
-        import datetime
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = json_file + f'_{timestamp}.bak'
-        try:
-            import shutil
-            shutil.copy2(json_file, backup_file)
-            print(f"\nBackup created: {backup_file}")
-        except Exception as e:
-            print(f"Warning: Could not create backup: {e}")
-
-    try:
-        # Ensure section order: CostumeParam, DLCTableData, ItemTableData, ShopItem
-        section_order = ['CostumeParam', 'DLCTableData', 'ItemTableData', 'ShopItem']
-        ordered = {k: data[k] for k in section_order if k in data}
-        for k in data:
-            if k not in ordered:
-                ordered[k] = data[k]
-
-        with open(json_file, 'w', encoding='utf-8') as f:
-            json.dump(ordered, f, indent=4, ensure_ascii=ensure_ascii)
-        print(f"Written: {json_file}")
-        print(f"\nDone! {len(resolved)} new MDL(s) added successfully"
-              + (f" (new file created)" if is_new_file else "") + ".")
-        print(f"\nReminder: Review generated item names in ItemTableData")
-        print(f"  (search for 'generated' to find placeholder entries)")
-    except Exception as e:
-        print(f"Error writing file: {e}")
-        sys.exit(1)
+    write_kurodlc(json_file, data, do_backup, is_new_file, ensure_ascii)
+    print(f"\nDone! {len(resolved)} new MDL(s) added successfully"
+          + (f" (new file created)" if is_new_file else "") + ".")
+    print(f"\nReminder: Review generated item names in ItemTableData")
+    print(f"  (search for 'generated' to find placeholder entries)")
 
 
 if __name__ == "__main__":
