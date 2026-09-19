@@ -49,6 +49,10 @@ there is:
 
   python sky2_fix_shaders.py mymod --ref stock_models --fix
 
+Just one model from the folder:
+
+  python sky2_fix_shaders.py mymod --mdl mod_chr5000_c72qw --fix
+
 Options
   --ref PATH        Untouched 2nd Chapter models. A folder (searched for both
                     .mdl files and .pac archives - the game's pac/steam folder
@@ -61,6 +65,9 @@ Options
   --fix             Rebuild broken materials from the reference.
   --max-diff N      Refuse to use a donor differing in more than N switches
                     (default 6). Raise it if nothing close enough is found.
+  --mdl NAME        Only process this model (file name, .mdl optional, or a
+                    path). May be given several times. Without it every model
+                    in the folder is processed, as before.
   --no-recursive    Do not descend into subfolders.
   --no-backup       Do not keep a .bak of the models that are rewritten.
   -q, --quiet       Only print problems and the summary.
@@ -980,7 +987,7 @@ def restore_backups(mdl_files, scan_dir):
             original = f.read()
         with open(mdl, 'rb') as f:
             current = f.read()
-        rel = os.path.relpath(mdl, scan_dir)
+        rel = rel_name(mdl, scan_dir)
         if original == current:
             out("{}   already the original".format(rel))
             continue
@@ -992,6 +999,55 @@ def restore_backups(mdl_files, scan_dir):
     out("{} model(s) restored. Run with --fix again to repair them the careful way."
         .format(restored) if restored else "Nothing to restore.")
     return 0
+
+
+def select_models(names, mdl_files, scan_dir):
+    """Narrow mdl_files to the models asked for with --mdl.
+
+    A name may be a path to an existing .mdl (used as is, even outside the
+    folder), a path relative to the folder, or a bare file name with or
+    without .mdl, matched case-insensitively anywhere under the folder.
+    Returns (selected, missing) where missing is [(name, close_matches)].
+    """
+    import difflib
+    by_base = {}
+    for m in mdl_files:
+        by_base.setdefault(os.path.basename(m).lower(), []).append(m)
+    selected, missing = [], []
+    for name in names:
+        hits = []
+        for candidate in (name, os.path.join(scan_dir, name)):
+            if not candidate.lower().endswith('.mdl'):
+                candidate += '.mdl'
+            if os.path.isfile(candidate):
+                hits = [os.path.abspath(candidate)]
+                break
+        if not hits:
+            base = os.path.basename(name).lower()
+            if not base.endswith('.mdl'):
+                base += '.mdl'
+            hits = by_base.get(base, [])
+        if not hits:
+            close = difflib.get_close_matches(
+                os.path.basename(name).lower(), list(by_base), n=3, cutoff=0.6)
+            missing.append((name, close))
+            continue
+        for hit in hits:
+            # Match the spelling glob produced, so later relpath output is the same.
+            same = [m for m in mdl_files
+                    if os.path.normcase(os.path.abspath(m)) == os.path.normcase(hit)]
+            hit = same[0] if same else hit
+            if hit not in selected:
+                selected.append(hit)
+    return selected, missing
+
+
+def rel_name(path, base):
+    """relpath that also works for a file on another drive (Windows)."""
+    try:
+        return os.path.relpath(path, base)
+    except ValueError:
+        return path
 
 
 def backup_path(path, suffix='.bak'):
@@ -1025,6 +1081,7 @@ def main():
                "Examples:\n"
                "  python sky2_fix_shaders.py mymod            report, game found automatically\n"
                "  python sky2_fix_shaders.py mymod --fix      repair (a .bak is kept)\n"
+               "  python sky2_fix_shaders.py mymod --mdl mod_chr5000_c72qw --fix   only that model\n"
                "  python sky2_fix_shaders.py mymod --rebuild  read the game again (after an update)\n"
                '  python sky2_fix_shaders.py mymod --ref "D:\\Games\\Sky2nd\\pac\\steam"')
     parser.add_argument('directory', nargs='?', default='.',
@@ -1059,6 +1116,11 @@ def main():
                              "model uses (e.g. fur) to chr_cloth. Off by default: "
                              "the game does have such shaders - a working port "
                              "kept its fur material as it was")
+    parser.add_argument('--mdl', action='append', default=[], metavar='NAME',
+                        help="only process this model: a file name (.mdl "
+                             "optional, looked up in the folder) or a path. "
+                             "May be repeated. Without it every model in the "
+                             "folder is processed")
     parser.add_argument('--no-recursive', action='store_true',
                         help="do not descend into subfolders")
     parser.add_argument('--no-backup', action='store_true',
@@ -1085,6 +1147,19 @@ def main():
     ref_abs = {os.path.abspath(p) for p in args.ref}
     mdl_files = [m for m in mdl_files
                  if not any(os.path.abspath(m).startswith(r) for r in ref_abs)]
+    # Every model in the folder, kept for excluding the mod from an
+    # auto-detected game reference even when --mdl narrows the work.
+    all_mdl_files = list(mdl_files)
+    if args.mdl:
+        selected, missing = select_models(args.mdl, mdl_files, scan_dir)
+        if missing:
+            for name, close in missing:
+                out("--mdl {}: no such model in {}".format(name, scan_dir))
+                if close:
+                    out("  did you mean: {}".format(", ".join(close)))
+            return 2
+        mdl_files = selected
+        all_mdl_files = sorted(set(all_mdl_files) | set(selected))
     if not mdl_files:
         out("No .mdl files found in {}".format(scan_dir))
         return 0
@@ -1130,7 +1205,7 @@ def main():
                     out("Game found ({0}): {1}".format(how, found))
                 build_from = [found]
                 # The game folder may already hold the mod being checked.
-                exclude = {os.path.basename(m).lower() for m in mdl_files}
+                exclude = {os.path.basename(m).lower() for m in all_mdl_files}
             elif args.rebuild and not args.quiet:
                 out("--rebuild: the game could not be found; point --ref at it.")
 
@@ -1185,7 +1260,7 @@ def main():
     unreadable = []
 
     for mdl in mdl_files:
-        rel = os.path.relpath(mdl, scan_dir)
+        rel = rel_name(mdl, scan_dir)
         try:
             with open(mdl, 'rb') as f:
                 original_bytes = f.read()
