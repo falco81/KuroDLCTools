@@ -3,17 +3,21 @@
 sky2_check_textures.py - check the .dds textures of a Trails in the Sky 2nd
 Chapter mod and convert them to the format the game will actually load.
 
-Two formats matter, and which one is right depends on how the mod is installed:
+Which wrapper a loose texture needs depends on the mod loader installed next to
+sora_2nd.exe - the two in use want opposite things:
 
-  loose files   (asset/dx11/image/*.dds next to the game, served by the mod
-                loader - the log says "PAC bypass" and "LZ4 bypassed: vtable
-                swapped for raw DDS")
-                -> PLAIN .dds.  The loader switches the game to reading raw
-                DDS, so an LZ4-wrapped file is not loaded.  This is the
-                default target.
+  raw   plain .dds.  The older loader switches the game to raw DDS; its log
+        says "LZ4 bypassed: vtable swapped for raw DDS".  An LZ4 file is not
+        loaded ("texture create failed").
+  lz4   DDS wrapped in an LZ4 frame (magic 04 22 4D 18), exactly as inside the
+        game's .pac archives.  sora2looseload (the Hinkiii/sora1looseload fork)
+        only redirects the path and lets the game read the file as usual, so a
+        plain .dds fails ("texture create failed", "texture is null").  Files
+        packed into a .pac need this too.
 
-  inside a .pac (the game's own archives)
-                -> LZ4-wrapped DDS (magic 04 22 4D 18).  --target pac.
+--target auto (the default) finds the game folder - above the mod, or in the
+Steam libraries - and reads the loader DLLs next to sora_2nd.exe to decide.
+When it cannot tell, it only reports, and --fix asks for --target raw or lz4.
 
 Textures carried over from Kuro / Daybreak are Blowfish-encrypted or
 zstd-compressed (F9BA / C9BA / D9BA); Sky 2nd reads neither, and they are
@@ -29,16 +33,24 @@ Which textures are checked:
 Usage:
   python sky2_check_textures.py                     check the current folder
   python sky2_check_textures.py mymod               check another folder
-  python sky2_check_textures.py mymod --fix         convert to plain .dds
+  python sky2_check_textures.py mymod --fix         convert for the loader found
   python sky2_check_textures.py mymod --all --fix   every .dds, not only used ones
-  python sky2_check_textures.py mymod --fix --target pac    LZ4, for a .pac
+  python sky2_check_textures.py mymod --fix --target lz4    force LZ4
 
 Options:
   --fix                Convert every texture to the target format. A backup of
                        each converted file is kept (<name>.dds.lz4_original,
                        .raw_original or .kuro_original) unless --no-backup.
-  --target loose|pac   The format to aim for (default: loose = plain .dds).
-  --decompress         Same as --fix --target loose (kept for old scripts).
+  --target auto|old|new|raw|lz4
+                       The format to aim for (default: auto - decided by the
+                       mod loader installed in the game folder).
+                         old  the older loader ("LZ4 bypassed" in its log)
+                              -> plain .dds, the same as raw
+                         new  sora2looseload -> LZ4-wrapped, the same as lz4
+                              (and what a .pac needs)
+                       "loose" and "pac" still work as old names for raw/lz4.
+  --game DIR           The game folder, if auto cannot find it.
+  --decompress         Same as --fix --target raw (kept for old scripts).
   --all                Check every .dds under the folder, not only the ones the
                        models use.
   --image-dir DIR      Where the .dds files live. Default: asset/dx11/image
@@ -139,8 +151,71 @@ STATE_TEXT = {
 }
 
 # The format each target wants, and what can be converted into it.
-GOOD = {'loose': RAW, 'pac': OK}
-CONVERTIBLE = {'loose': (OK, CLE), 'pac': (RAW, CLE)}
+GOOD = {'raw': RAW, 'lz4': OK}
+CONVERTIBLE = {'raw': (OK, CLE), 'lz4': (RAW, CLE)}
+TARGET_ALIASES = {'loose': 'raw', 'pac': 'lz4', 'plain': 'raw',
+                  'old': 'raw', 'new': 'lz4', 'sora2looseload': 'lz4'}
+
+
+# ---------------------------------------------------------------------------
+# Which mod loader is installed
+# ---------------------------------------------------------------------------
+
+# Text each loader's DLL contains, and what it means for loose textures.
+LOADER_MARKERS = (
+    (b'LZ4 bypassed', 'raw',
+     "a loader that switches the game to raw DDS (\"LZ4 bypassed\")"),
+    (b'sora2looseload', 'lz4',
+     "sora2looseload - redirects paths only, the game reads LZ4 as from a .pac"),
+    (b'sora1looseload', 'lz4',
+     "sora1looseload - redirects paths only, the game reads LZ4 as from a .pac"),
+)
+GAME_EXE = 'sora_2nd.exe'
+
+
+def find_game_dir(start_dir, explicit=None):
+    """The folder with sora_2nd.exe: --game, then above start_dir, then Steam."""
+    if explicit:
+        return os.path.abspath(explicit) if os.path.isfile(
+            os.path.join(explicit, GAME_EXE)) else None
+    folder = os.path.abspath(start_dir)
+    while True:
+        if os.path.isfile(os.path.join(folder, GAME_EXE)):
+            return folder
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            break
+        folder = parent
+    try:                                    # the Steam search of the toolkit
+        from sky2_fix_shaders import steam_game_dirs
+        for game in steam_game_dirs():
+            if os.path.isfile(os.path.join(game, GAME_EXE)):
+                return game
+    except Exception:
+        pass
+    return None
+
+
+def detect_loader(game_dir):
+    """(target, description, dll path) for the loader in game_dir, or Nones."""
+    if not game_dir:
+        return None, None, None
+    candidates = []
+    for pattern in ('*.dll', '*.asi', os.path.join('plugins', '*.dll'),
+                    os.path.join('plugins', '*.asi')):
+        candidates += glob.glob(os.path.join(game_dir, pattern))
+    for path in sorted(candidates):
+        try:
+            if os.path.getsize(path) > 64 * 1024 * 1024:
+                continue
+            with open(path, 'rb') as f:
+                blob = f.read()
+        except OSError:
+            continue
+        for marker, target, description in LOADER_MARKERS:
+            if marker in blob:
+                return target, description, path
+    return None, None, None
 
 
 def classify(path):
@@ -485,7 +560,7 @@ BACKUP_SUFFIX = {OK: '.lz4_original', RAW: '.raw_original', CLE: '.kuro_original
 
 def convert(path, state, target, keep_backup=True):
     """Rewrite one texture in the target format. (True, note) or (False, why)."""
-    if not HAS_LZ4 and (state == OK or target == 'pac'):
+    if not HAS_LZ4 and (state == OK or target == 'lz4'):
         return False, "the lz4 module is missing (python -m pip install lz4)"
     data = load_dds_bytes(path, state)
     if data is None or data[:4] != DDS_MAGIC:
@@ -493,7 +568,7 @@ def convert(path, state, target, keep_backup=True):
     problem = dds_problem(data)
     if problem:
         return False, "the DDS inside is broken: " + problem
-    payload = lz4.frame.compress(data) if target == 'pac' else data
+    payload = lz4.frame.compress(data) if target == 'lz4' else data
 
     if keep_backup:
         backup = backup_path(path, BACKUP_SUFFIX.get(state, '.original'))
@@ -539,24 +614,37 @@ def main():
         description="Check the .dds textures of a Trails in the Sky 2nd Chapter "
                     "mod and convert them to the format the game loads.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Loose files served by the mod loader (the usual way to install a "
-               "mod) must be\nPLAIN .dds - the loader switches the game to raw "
-               "DDS, so an LZ4-wrapped file\nis not loaded. Only textures packed "
-               "into a .pac need LZ4 (--target pac).\n\n"
+        epilog="The two mod loaders in use want opposite formats for loose "
+               "textures:\n"
+               "  old (raw)  - the loader whose log says 'LZ4 bypassed: vtable swapped "
+               "for raw DDS'\n"
+               "  new (lz4)  - sora2looseload, and anything packed into a .pac\n"
+               "--target auto reads the loader DLL next to sora_2nd.exe and "
+               "picks the right one.\n\n"
                "Examples:\n"
                "  python sky2_check_textures.py mymod                check\n"
-               "  python sky2_check_textures.py mymod --fix          convert to plain .dds\n"
-               "  python sky2_check_textures.py mymod --all --fix    every .dds in the folder\n"
-               "  python sky2_check_textures.py mymod --fix --target pac")
+               "  python sky2_check_textures.py mymod --all --fix    convert every .dds\n"
+               "  python sky2_check_textures.py mymod --all --fix --target new   (sora2looseload)\n"
+               "  python sky2_check_textures.py mymod --all --fix --target old   (older loader)\n"
+               "  python sky2_check_textures.py mymod --game \"D:\\Steam\\steamapps\\common\\"
+               "Trails in the Sky 2nd Chapter\"")
     parser.add_argument('directory', nargs='?', default='.',
                         help="folder with the mod (default: current)")
     parser.add_argument('--fix', action='store_true',
                         help="convert the textures to the target format")
-    parser.add_argument('--target', choices=('loose', 'pac'), default='loose',
-                        help="loose = plain .dds for the mod loader (default); "
-                             "pac = LZ4-wrapped, for packing into a .pac")
+    parser.add_argument('--target', default='auto',
+                        choices=('auto', 'old', 'new', 'raw', 'lz4',
+                                 'sora2looseload', 'loose', 'pac'),
+                        help="auto = decided by the mod loader in the game folder "
+                             "(default); old = for the older loader ('LZ4 "
+                             "bypassed' in its log), plain .dds, same as raw; "
+                             "new = for sora2looseload, LZ4-wrapped, same as lz4 "
+                             "(also right for a .pac)")
+    parser.add_argument('--game', metavar='DIR',
+                        help="the game folder (with sora_2nd.exe), if auto "
+                             "cannot find it")
     parser.add_argument('--decompress', action='store_true',
-                        help="same as --fix --target loose")
+                        help="same as --fix --target raw")
     parser.add_argument('--all', action='store_true',
                         help="every .dds under the folder, not only the ones "
                              "the models use")
@@ -576,12 +664,12 @@ def main():
                         help="only print the problems and the summary")
     args = parser.parse_args()
 
+    target = TARGET_ALIASES.get(args.target, args.target)
     if args.decompress:
-        if args.target == 'pac':
-            out("--decompress means --target loose; it cannot go with --target pac.")
+        if target == 'lz4':
+            out("--decompress means --target raw; it cannot go with --target lz4.")
             return 2
-        args.fix = True
-    target, good = args.target, GOOD[args.target]
+        args.fix, target = True, 'raw'
 
     recursive = not args.no_recursive
     scan_dir = os.path.abspath(args.directory)
@@ -593,6 +681,26 @@ def main():
         else os.path.join(scan_dir, '*.mdl')
     mdl_files = sorted(glob.glob(pattern, recursive=recursive))
     by_models = bool(mdl_files) and not args.all
+
+    target_note = "given with --target"
+    if target == 'auto':
+        game_dir = find_game_dir(scan_dir, args.game)
+        found, description, dll = detect_loader(game_dir)
+        if found:
+            target = found
+            target_note = "{0} ({1})".format(description, dll)
+        else:
+            target = None
+            target_note = ("game folder not found" if not game_dir else
+                           "no known mod loader in {}".format(game_dir))
+            if args.fix:
+                out("Cannot tell which format the textures need: {}.".format(target_note))
+                out("Say it with --target raw (plain .dds, for the loader whose log "
+                    "says 'LZ4 bypassed')")
+                out("or --target lz4 (sora2looseload, or a .pac), or point --game at "
+                    "the game folder.")
+                return 2
+    good = GOOD[target] if target else None
 
     # Where the textures are.
     roots = [os.path.abspath(d) for d in args.image_dir]
@@ -650,9 +758,10 @@ def main():
             out("Textures:  {} used by them".format(len(wanted)))
         else:
             out("Textures:  every .dds under {0} ({1})".format(scan_dir, len(wanted)))
-        out("Target:    {}".format(
-            "plain .dds - loose files through the mod loader" if target == 'loose'
-            else "LZ4-wrapped .dds - for a .pac"))
+        if target:
+            out("Target:    {0}  - {1}".format(STATE_TEXT[good], target_note))
+        else:
+            out("Target:    unknown - {} (report only; see --target)".format(target_note))
         out("")
 
     if not wanted:
@@ -687,13 +796,19 @@ def main():
             "no mipmaps" if info[2] <= 1 else "{} mipmaps".format(info[2])) if info else ""
 
         counts[state] += 1
-        if state == good:
+        if target is None:
+            if state in (OK, RAW, CLE):
+                out("  [{0:<9}] {1}  {2}{3}".format(
+                    {OK: 'lz4', RAW: 'plain', CLE: 'kuro'}[state], rel,
+                    STATE_TEXT[state], described))
+                continue
+        elif state == good:
             if args.list_ok:
                 out("  [ok]        {0}{1}".format(rel, described))
             continue
 
         label = STATE_TEXT[state] + (": " + detail if detail else "")
-        if state in CONVERTIBLE[target] and args.fix:
+        if target and state in CONVERTIBLE[target] and args.fix:
             ok, note = convert(path, state, target, keep_backup=not args.no_backup)
             if ok:
                 converted += 1
@@ -709,12 +824,13 @@ def main():
         out("  [{0:<9}] {1}  {2}{3}{4}".format(tag, rel, label, described, where))
 
     # ---- summary ---------------------------------------------------------
-    wrong = sum(counts[s] for s in CONVERTIBLE[target])
+    wrong = sum(counts[s] for s in CONVERTIBLE[target]) if target else 0
     out("")
     out("=" * 62)
     out("Textures checked:     {}".format(len(wanted)))
-    out("Already right:        {0}  ({1})".format(counts[good], STATE_TEXT[good]))
-    for state in CONVERTIBLE[target]:
+    if target:
+        out("Already right:        {0}  ({1})".format(counts[good], STATE_TEXT[good]))
+    for state in (CONVERTIBLE[target] if target else (RAW, OK, CLE)):
         if counts[state]:
             out("{0:<22}{1}".format(
                 {OK: "LZ4-wrapped:", RAW: "Plain DDS:", CLE: "Kuro format:"}[state],
@@ -750,10 +866,16 @@ def main():
         out("Missing textures are fine when they are stock ones the game "
             "supplies itself;")
         out("otherwise add them to the mod. --image-dir if they live elsewhere.")
-    if wrong == 0 and not damaged and not counts[MISSING] and not failed:
+    if target is None:
+        out("Which format is right depends on the mod loader - run with --target "
+            "raw or lz4,")
+        out("or --game pointing at the game folder so it can be detected.")
+    elif wrong == 0 and not damaged and not counts[MISSING] and not failed:
         out("Every texture is in the right format.")
 
     remaining = len(damaged) + counts[MISSING] + failed + (0 if args.fix else wrong)
+    if target is None:
+        remaining += 1
     return 1 if remaining or unreadable else 0
 
 
