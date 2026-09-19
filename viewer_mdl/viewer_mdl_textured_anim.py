@@ -1252,7 +1252,9 @@ def load_mdl_with_textures(mdl_path: Path, temp_dir: Path, recompute_normals: bo
     # Copy and convert textures
     material_texture_map = {}
     texture_success = {}
-    
+    texture_dds_paths = {}  # tex_name (.dds) -> absolute path of the DDS on disk, or None if not found
+    TEXTURE_SLOT_NAMES = {0: 'diffuse', 1: 'detail', 3: 'normal', 7: 'specular', 9: 'toon'}
+
     if TEXTURES_AVAILABLE and PIL_AVAILABLE and len(image_list) > 0:
         print(f"\n[+] Searching for textures in:")
         existing_count = 0
@@ -1272,7 +1274,8 @@ def load_mdl_with_textures(mdl_path: Path, temp_dir: Path, recompute_normals: bo
         print(f"\n[+] Converting textures to PNG...")
         for tex_name in image_list:
             dds_path = find_texture_file(tex_name, search_paths)
-            
+            texture_dds_paths[tex_name] = str(Path(dds_path).resolve()) if dds_path else None
+
             if dds_path:
                 png_name = tex_name.replace('.dds', '.png')
                 png_path = temp_textures_dir / png_name
@@ -1291,16 +1294,24 @@ def load_mdl_with_textures(mdl_path: Path, temp_dir: Path, recompute_normals: bo
         for material in material_struct:
             mat_name = material['material_name']
             mat_textures = {}
-            
+            texture_list = []  # every texture the material references (for the Meshes panel)
+
             for tex in material.get('textures', []):
                 tex_name = tex['texture_image_name']
                 if not tex_name.endswith('.dds'):
                     tex_name = tex_name + '.dds'
-                
+
                 slot = tex['texture_slot']
                 wrapS = tex.get('wrapS', 0)
                 wrapT = tex.get('wrapT', 0)
-                
+
+                texture_list.append({
+                    'name': tex_name,
+                    'slot': slot,
+                    'slotName': TEXTURE_SLOT_NAMES.get(slot, f'slot {slot}'),
+                    'ddsPath': texture_dds_paths.get(tex_name),
+                })
+
                 if tex_name in texture_success and texture_success[tex_name]:
                     rel_path = f"textures/{texture_success[tex_name]}"
                     
@@ -1323,6 +1334,8 @@ def load_mdl_with_textures(mdl_path: Path, temp_dir: Path, recompute_normals: bo
                     else:
                         mat_textures[f'slot_{slot}'] = tex_info
             
+            mat_textures['_textureList'] = texture_list
+
             # Extract shader parameters
             shader_type = material.get('shader_name', '')
             mat_textures['_shaderType'] = shader_type
@@ -1870,6 +1883,22 @@ def generate_html_with_skeleton(mdl_path: Path, meshes: list, material_texture_m
       display: inline-block; width: 12px; height: 12px; border-radius: 3px;
       margin-left: 4px; background: linear-gradient(135deg, #6b7280, #9ca3af);
     }}
+    .texture-indicator.clickable {{ cursor: pointer; }}
+    .mesh-textures {{
+      display: none; margin: -2px 0 6px 36px; padding: 4px 6px;
+      border-left: 2px solid rgba(124, 58, 237, 0.4); font-size: 11px;
+    }}
+    .mesh-textures.open {{ display: block; }}
+    .mesh-tex-row {{
+      display: flex; gap: 6px; align-items: baseline; padding: 2px 4px; border-radius: 4px;
+      overflow: hidden; white-space: nowrap;
+    }}
+    .mesh-tex-slot {{ color: #9ca3af; flex-shrink: 0; min-width: 52px; }}
+    .mesh-tex-name {{ overflow: hidden; text-overflow: ellipsis; color: #34d399; }}
+    .mesh-tex-row.found {{ cursor: pointer; }}
+    .mesh-tex-row.found:hover {{ background: rgba(124, 58, 237, 0.25); }}
+    .mesh-tex-row.found:hover .mesh-tex-name {{ text-decoration: underline; }}
+    .mesh-tex-row.missing .mesh-tex-name {{ color: #f87171; }}
 
     /* === Select / dropdown === */
     .styled-select {{
@@ -5267,10 +5296,57 @@ def generate_html_with_skeleton(mdl_path: Path, meshes: list, material_texture_m
         label.style.overflow = 'hidden';
         label.style.textOverflow = 'ellipsis';
         
-        if (mesh.userData.hasTexture) {{
+        // Texture list (real DDS names, click = show in Explorer)
+        const matData = mesh.userData.materialName ? materials[mesh.userData.materialName] : null;
+        const texList = (matData && matData._textureList) ? matData._textureList : [];
+        let texPanel = null;
+        if (texList.length > 0) {{
+          texPanel = document.createElement('div');
+          texPanel.className = 'mesh-textures';
+          texList.forEach(t => {{
+            const row = document.createElement('div');
+            row.className = 'mesh-tex-row ' + (t.ddsPath ? 'found' : 'missing');
+            const slot = document.createElement('span');
+            slot.className = 'mesh-tex-slot';
+            slot.textContent = t.slotName;
+            const name = document.createElement('span');
+            name.className = 'mesh-tex-name';
+            name.textContent = t.name;
+            row.appendChild(slot);
+            row.appendChild(name);
+            if (t.ddsPath) {{
+              row.title = t.ddsPath + '\\nClick: show in Explorer';
+              row.addEventListener('click', (e) => {{
+                e.preventDefault(); e.stopPropagation();
+                if (window.pywebview && window.pywebview.api && window.pywebview.api.reveal_in_explorer) {{
+                  window.pywebview.api.reveal_in_explorer(t.ddsPath).then(r => {{
+                    if (!r || !r.success) console.warn('reveal_in_explorer failed:', r && r.error);
+                  }});
+                }}
+              }});
+            }} else {{
+              row.title = 'Texture not found in the search paths';
+              name.textContent = t.name + '  (not found)';
+            }}
+            texPanel.appendChild(row);
+          }});
+        }}
+
+        if (mesh.userData.hasTexture || texList.length > 0) {{
           const indicator = document.createElement('span');
           indicator.className = 'texture-indicator';
-          indicator.title = 'Has texture';
+          if (texList.length > 0) {{
+            const missing = texList.filter(t => !t.ddsPath).length;
+            indicator.classList.add('clickable');
+            indicator.title = texList.length + ' texture(s)' + (missing ? ', ' + missing + ' missing' : '') + ' - click to show';
+            if (missing) indicator.style.background = 'linear-gradient(135deg, #f59e0b, #f87171)';
+            indicator.addEventListener('click', (e) => {{
+              e.preventDefault(); e.stopPropagation();
+              texPanel.classList.toggle('open');
+            }});
+          }} else {{
+            indicator.title = 'Has texture';
+          }}
           label.appendChild(indicator);
         }}
         
@@ -5302,6 +5378,7 @@ def generate_html_with_skeleton(mdl_path: Path, meshes: list, material_texture_m
         div.appendChild(spotBtn);
         div.appendChild(focusBtn);
         list.appendChild(div);
+        if (texPanel) list.appendChild(texPanel);
       }});
       // Show FXO Shaders toggle if toon materials are present
       if (shaderStats.toon > 0 && !NO_SHADERS) {{
@@ -8606,6 +8683,29 @@ class API:
             else:  # Linux
                 subprocess.run(['xdg-open', str(filepath)])
             
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def reveal_in_explorer(self, filepath: str) -> dict:
+        """Open the containing folder in the file manager with the file selected."""
+        try:
+            import subprocess
+            import platform
+
+            filepath = Path(filepath)
+            if not filepath.exists():
+                return {"success": False, "error": f"File not found: {filepath}"}
+
+            system = platform.system()
+            if system == 'Windows':
+                # explorer.exe needs /select,"path" as one token; it returns exit code 1 even on success
+                subprocess.Popen(f'explorer /select,"{filepath.resolve()}"')
+            elif system == 'Darwin':  # macOS: Finder with the file selected
+                subprocess.Popen(['open', '-R', str(filepath)])
+            else:  # Linux: no portable "select", open the folder
+                subprocess.Popen(['xdg-open', str(filepath.parent)])
+
             return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}
